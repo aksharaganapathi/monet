@@ -99,3 +99,7 @@ Monet is intentionally opinionated:
 - Security-related UX should be explicit, calm, and hard to misuse.
 
 That balance matters more here than adding every possible finance feature as fast as possible.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
