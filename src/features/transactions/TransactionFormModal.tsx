@@ -10,10 +10,12 @@ import { useUIStore } from '../../store/uiStore';
 import { getTodayISO } from '../../lib/utils';
 
 export function TransactionFormModal() {
-  const { isTransactionFormOpen, closeTransactionForm } = useUIStore();
-  const { addTransaction } = useTransactionStore();
+  const { isTransactionFormOpen, editingTransactionId, closeTransactionForm } = useUIStore();
+  const { transactions, addTransaction, updateTransaction } = useTransactionStore();
   const { accounts } = useAccountStore();
   const { categories } = useCategoryStore();
+
+  const editingTransaction = transactions.find((txn) => txn.id === editingTransactionId) ?? null;
 
   const [amount, setAmount] = useState('');
   const [categoryId, setCategoryId] = useState('');
@@ -25,15 +27,24 @@ export function TransactionFormModal() {
 
   useEffect(() => {
     if (isTransactionFormOpen) {
-      setAmount('');
-      setCategoryId(categories[0]?.id.toString() ?? '');
-      setAccountId(accounts[0]?.id.toString() ?? '');
-      setDate(getTodayISO());
-      setNote('');
-      setIsExpense(true);
+      if (editingTransaction) {
+        setAmount(Math.abs(editingTransaction.amount).toString());
+        setCategoryId(editingTransaction.category_id.toString());
+        setAccountId(editingTransaction.account_id.toString());
+        setDate(editingTransaction.date);
+        setNote(editingTransaction.note ?? '');
+        setIsExpense(editingTransaction.amount < 0);
+      } else {
+        setAmount('');
+        setCategoryId(categories[0]?.id.toString() ?? '');
+        setAccountId(accounts[0]?.id.toString() ?? '');
+        setDate(getTodayISO());
+        setNote('');
+        setIsExpense(true);
+      }
       setError('');
     }
-  }, [isTransactionFormOpen, accounts, categories]);
+  }, [isTransactionFormOpen, editingTransaction, accounts, categories]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,13 +59,26 @@ export function TransactionFormModal() {
     }
 
     try {
-      await addTransaction({
-        amount: isExpense ? -Math.abs(parsedAmount) : Math.abs(parsedAmount),
-        category_id: parseInt(categoryId),
-        account_id: parseInt(accountId),
-        date,
-        note: note.trim() || undefined,
-      });
+      const normalizedAmount = isExpense ? -Math.abs(parsedAmount) : Math.abs(parsedAmount);
+
+      if (editingTransaction) {
+        await updateTransaction({
+          id: editingTransaction.id,
+          amount: normalizedAmount,
+          category_id: parseInt(categoryId),
+          account_id: parseInt(accountId),
+          date,
+          note: note.trim() || undefined,
+        });
+      } else {
+        await addTransaction({
+          amount: normalizedAmount,
+          category_id: parseInt(categoryId),
+          account_id: parseInt(accountId),
+          date,
+          note: note.trim() || undefined,
+        });
+      }
       closeTransactionForm();
     } catch (e) {
       setError((e as Error).message);
@@ -65,7 +89,7 @@ export function TransactionFormModal() {
     <Modal
       isOpen={isTransactionFormOpen}
       onClose={closeTransactionForm}
-      title="Add Transaction"
+      title={editingTransaction ? 'Edit Transaction' : 'Add Transaction'}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Income / Expense Toggle */}
@@ -137,7 +161,7 @@ export function TransactionFormModal() {
             Cancel
           </Button>
           <Button type="submit" className={isExpense ? '!bg-expense hover:!bg-expense/90' : '!bg-income hover:!bg-income/90'}>
-            {isExpense ? 'Add Expense' : 'Add Income'}
+            {editingTransaction ? 'Save Changes' : isExpense ? 'Add Expense' : 'Add Income'}
           </Button>
         </div>
       </form>

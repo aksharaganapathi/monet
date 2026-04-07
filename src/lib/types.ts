@@ -90,9 +90,25 @@ export interface CreateTransactionDTO {
   note?: string;
 }
 
+export interface UpdateTransactionDTO {
+  id: number;
+  amount: number;
+  category_id: number;
+  account_id: number;
+  date: string;
+  note?: string;
+}
+
 export interface CreateCategoryDTO {
   name: string;
   icon?: string;
+}
+
+export interface SetupStatus {
+  isConfigured: boolean;
+  userName: string | null;
+  biometricEnabled: boolean;
+  canUseBiometricUnlock: boolean;
 }
 
 // ─── Enriched Types (with joins) ───
@@ -101,4 +117,4 @@ export type TransactionWithDetails = z.infer<typeof TransactionWithDetailsSchema
 
 // ─── UI Types ───
 
-export type Page = 'dashboard' | 'accounts' | 'transactions' | 'categories';
+export type Page = 'dashboard' | 'insights' | 'accounts' | 'transactions' | 'categories' | 'settings';

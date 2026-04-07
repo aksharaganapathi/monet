@@ -1,17 +1,18 @@
 import { create } from 'zustand';
 import type { Account, CreateAccountDTO, UpdateAccountDTO } from '../lib/types';
 import { accountRepository } from '../lib/repositories/accountRepository';
-import { transactionRepository } from '../lib/repositories/transactionRepository';
 
 interface AccountState {
   accounts: Account[];
   totalBalance: number;
   netWorthTrend: { date: string; value: number }[];
+  hasLoaded: boolean;
   loading: boolean;
   error: string | null;
-  fetchAccounts: () => Promise<void>;
+  fetchAccounts: (force?: boolean) => Promise<void>;
   addAccount: (dto: CreateAccountDTO) => Promise<void>;
   updateAccount: (dto: UpdateAccountDTO) => Promise<void>;
+  setAccountBalance: (id: number, newBalance: number, note?: string) => Promise<void>;
   deleteAccount: (id: number) => Promise<void>;
   refreshBalances: () => Promise<void>;
   fetchNetWorthTrend: () => Promise<void>;
@@ -21,17 +22,22 @@ export const useAccountStore = create<AccountState>((set, get) => ({
   accounts: [],
   totalBalance: 0,
   netWorthTrend: [],
+  hasLoaded: false,
   loading: false,
   error: null,
 
-  fetchAccounts: async () => {
+  fetchAccounts: async (force = false) => {
+    if (!force && get().hasLoaded) {
+      return;
+    }
+
     set({ loading: true, error: null });
     try {
       const [accounts, totalBalance] = await Promise.all([
         accountRepository.getAll(),
         accountRepository.getTotalBalance(),
       ]);
-      set({ accounts, totalBalance, loading: false });
+      set({ accounts, totalBalance, hasLoaded: true, loading: false });
     } catch (e) {
       console.error("Account fetch error:", e);
       set({ error: (e as Error).message, loading: false });
@@ -45,10 +51,11 @@ export const useAccountStore = create<AccountState>((set, get) => ({
         accountRepository.getAll(),
         accountRepository.getTotalBalance(),
       ]);
-      set({ accounts, totalBalance });
+      set({ accounts, totalBalance, hasLoaded: true, error: null });
     } catch (e) {
       console.error("Account add error:", e);
       set({ error: (e as Error).message });
+      throw e;
     }
   },
 
@@ -56,10 +63,25 @@ export const useAccountStore = create<AccountState>((set, get) => ({
     try {
       await accountRepository.update(dto);
       const accounts = await accountRepository.getAll();
-      set({ accounts });
+      set({ accounts, hasLoaded: true });
     } catch (e) {
       console.error("Account update error:", e);
       set({ error: (e as Error).message });
+    }
+  },
+
+  setAccountBalance: async (id, newBalance, note) => {
+    try {
+      await accountRepository.setBalance(id, newBalance, note);
+      const [accounts, totalBalance] = await Promise.all([
+        accountRepository.getAll(),
+        accountRepository.getTotalBalance(),
+      ]);
+      set({ accounts, totalBalance, hasLoaded: true, error: null });
+    } catch (e) {
+      console.error("Account balance set error:", e);
+      set({ error: (e as Error).message });
+      throw e;
     }
   },
 
@@ -70,7 +92,7 @@ export const useAccountStore = create<AccountState>((set, get) => ({
         accountRepository.getAll(),
         accountRepository.getTotalBalance(),
       ]);
-      set({ accounts, totalBalance });
+      set({ accounts, totalBalance, hasLoaded: true });
     } catch (e) {
       console.error("Account delete error:", e);
       set({ error: (e as Error).message });
@@ -82,35 +104,21 @@ export const useAccountStore = create<AccountState>((set, get) => ({
       accountRepository.getAll(),
       accountRepository.getTotalBalance(),
     ]);
-    set({ accounts, totalBalance });
+    set({ accounts, totalBalance, hasLoaded: true });
   },
 
   fetchNetWorthTrend: async () => {
     try {
       const totalBalance = get().totalBalance || (await accountRepository.getTotalBalance());
-      const dailyChanges = await transactionRepository.getDailyBalanceChanges();
+      const snapshots = await accountRepository.getBalanceSnapshots();
 
-      if (dailyChanges.length === 0) {
-        // No transactions yet — flat line at current balance
+      if (snapshots.length === 0) {
         const today = new Date().toISOString().split('T')[0];
         set({ netWorthTrend: [{ date: today, value: totalBalance }] });
         return;
       }
 
-      // Sum all transaction changes to find the total historical delta
-      const totalDelta = dailyChanges.reduce((sum, d) => sum + d.daily_change, 0);
-
-      // The balance before any transactions were made
-      const startingBalance = totalBalance - totalDelta;
-
-      // Build cumulative running net worth
-      let running = startingBalance;
-      const trend = dailyChanges.map((d) => {
-        running += d.daily_change;
-        return { date: d.date, value: running };
-      });
-
-      set({ netWorthTrend: trend });
+      set({ netWorthTrend: snapshots });
     } catch (e) {
       console.error("Net worth trend error:", e);
     }

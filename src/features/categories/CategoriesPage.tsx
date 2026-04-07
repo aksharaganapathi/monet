@@ -66,7 +66,7 @@ export function CategoriesPage() {
   const customCategories = categories.filter((c) => c.is_custom);
 
   return (
-    <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
+    <motion.div variants={container} initial="hidden" animate="show" className="h-full min-h-0 flex flex-col gap-4">
       {/* Header */}
       <motion.div variants={item} className="flex items-center justify-between">
         <div>
@@ -86,46 +86,48 @@ export function CategoriesPage() {
         </motion.div>
       )}
 
-      {/* Default Categories */}
-      <motion.div variants={item}>
-        <h2 className="text-lg font-semibold text-text-primary mb-4">Default Categories</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {defaultCategories.map((cat) => (
-            <Card key={cat.id} className="!p-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-accent-subtle flex items-center justify-center text-accent flex-shrink-0">
-                {getCategoryIcon(cat.icon)}
-              </div>
-              <span className="text-sm font-medium text-text-primary truncate">{cat.name}</span>
-            </Card>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* Custom Categories */}
-      {customCategories.length > 0 && (
+      <div className="min-h-0 flex-1 overflow-auto pr-1 space-y-6">
+        {/* Default Categories */}
         <motion.div variants={item}>
-          <h2 className="text-lg font-semibold text-text-primary mb-4">Custom Categories</h2>
+          <h2 className="text-lg font-semibold text-text-primary mb-4">Default Categories</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-            {customCategories.map((cat) => (
-              <Card key={cat.id} className="!p-4 group flex items-center justify-between">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-xl bg-income-subtle flex items-center justify-center text-income flex-shrink-0">
-                    {getCategoryIcon(cat.icon)}
-                  </div>
-                  <span className="text-sm font-medium text-text-primary truncate">{cat.name}</span>
+            {defaultCategories.map((cat) => (
+              <Card key={cat.id} className="!p-4 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-accent-subtle flex items-center justify-center text-accent flex-shrink-0">
+                  {getCategoryIcon(cat.icon)}
                 </div>
-                <button
-                  onClick={() => handleDelete(cat.id)}
-                  className="p-1.5 rounded-lg text-text-tertiary hover:text-expense hover:bg-expense-subtle transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
-                  aria-label={`Delete ${cat.name}`}
-                >
-                  <Trash2 size={14} />
-                </button>
+                <span className="text-sm font-medium text-text-primary truncate">{cat.name}</span>
               </Card>
             ))}
           </div>
         </motion.div>
-      )}
+
+        {/* Custom Categories */}
+        {customCategories.length > 0 && (
+          <motion.div variants={item}>
+            <h2 className="text-lg font-semibold text-text-primary mb-4">Custom Categories</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {customCategories.map((cat) => (
+                <Card key={cat.id} className="!p-4 group flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-income-subtle flex items-center justify-center text-income flex-shrink-0">
+                      {getCategoryIcon(cat.icon)}
+                    </div>
+                    <span className="text-sm font-medium text-text-primary truncate">{cat.name}</span>
+                  </div>
+                  <button
+                    onClick={() => handleDelete(cat.id)}
+                    className="p-1.5 rounded-lg text-text-tertiary hover:text-expense hover:bg-expense-subtle transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                    aria-label={`Delete ${cat.name}`}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </Card>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </div>
 
       {/* Add Category Modal */}
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title="Add Category" size="sm">

@@ -1,30 +1,48 @@
 
-use tauri::{State, Manager, AppHandle, command};
+use tauri::{State, AppHandle, command};
 use webauthn_rs::prelude::*;
 use crate::AppState;
-use std::fs;
 
-// In a real app, you would pass these from the frontend dynamically
-const RP_ID: &str = "localhost";
-const RP_ORIGIN: &str = "http://localhost:1420";
+fn build_passkey_name(user_name: Option<String>) -> String {
+    let normalized = user_name
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .chars()
+                .map(|char| {
+                    if char.is_ascii_alphanumeric() {
+                        char
+                    } else {
+                        '-'
+                    }
+                })
+                .collect::<String>()
+        })
+        .map(|value| value.trim_matches('-').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "user".to_string());
+
+    format!("monet-{normalized}")
+}
 
 #[command]
-pub fn start_register(state: State<AppState>, app: AppHandle) -> Result<CreationChallengeResponse, String> {
+pub fn start_register(
+    state: State<AppState>,
+    _app: AppHandle,
+    user_name: Option<String>,
+) -> Result<CreationChallengeResponse, String> {
     let auth_lock = state.auth.lock().unwrap();
     let webauthn = auth_lock.as_ref().ok_or("Auth not configured")?;
     
-    let path = app.path().app_data_dir().map_err(|e| e.to_string())?.join("passkey.json");
-    if path.exists() {
-        return Err("A passkey is already registered.".to_string());
-    }
-    
     let user_id = uuid::Uuid::new_v4();
+    let display_name = build_passkey_name(user_name);
     
     let (challenge, reg_state) = webauthn
         .start_passkey_registration(
             user_id,
-            "monet-user",
-            "Monet User",
+            &display_name,
+            &display_name,
             None
         )
         .map_err(|e| e.to_string())?;
@@ -43,14 +61,7 @@ pub fn finish_register(state: State<AppState>, app: AppHandle, credential: Regis
     
     let passkey = webauthn.finish_passkey_registration(&credential, &reg_state).map_err(|e| e.to_string())?;
     
-    // Save passkey locally securely
-    let path = app.path().app_data_dir().map_err(|e| e.to_string())?.join("passkey.json");
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    
-    let json = serde_json::to_string(&passkey).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())?;
+    crate::save_passkey(&app, &passkey)?;
     
     Ok(())
 }
@@ -61,13 +72,12 @@ pub fn start_auth(state: State<AppState>, app: AppHandle) -> Result<RequestChall
     let webauthn = auth_lock.as_ref().ok_or("Auth not configured")?;
     
     // load passkey
-    let path = app.path().app_data_dir().map_err(|e| e.to_string())?.join("passkey.json");
+    let path = crate::passkey_path(&app)?;
     if !path.exists() {
         return Err("No passkey registered".to_string());
     }
     
-    let passkey_json = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let passkey: Passkey = serde_json::from_str(&passkey_json).map_err(|e| e.to_string())?;
+    let passkey = crate::load_passkey(&app)?;
     
     let (challenge, auth_state) = webauthn.start_passkey_authentication(&[passkey]).map_err(|e| e.to_string())?;
     
@@ -85,6 +95,5 @@ pub fn finish_auth_and_init(state: State<AppState>, app: tauri::AppHandle, auth_
     
     let _verify_result = webauthn.finish_passkey_authentication(&auth_res, &auth_state).map_err(|e| e.to_string())?;
     
-    // Verification succeeded! Unlock the database.
-    crate::open_db(&state, &app)
+    crate::unlock_with_biometric_internal(&state, &app).map(|_| ())
 }

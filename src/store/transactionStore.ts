@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { TransactionWithDetails, CreateTransactionDTO } from '../lib/types';
+import type { TransactionWithDetails, CreateTransactionDTO, UpdateTransactionDTO } from '../lib/types';
 import { transactionRepository } from '../lib/repositories/transactionRepository';
 import { useAccountStore } from './accountStore';
 
@@ -8,27 +8,34 @@ interface TransactionState {
   monthlySpending: { category_name: string; total: number }[];
   monthlyTotal: number;
   predictedEndOfMonthSpend: number;
+  hasLoaded: boolean;
   loading: boolean;
   error: string | null;
-  fetchTransactions: () => Promise<void>;
+  fetchTransactions: (force?: boolean) => Promise<void>;
   fetchMonthlySpending: (year: number, month: number) => Promise<void>;
   addTransaction: (dto: CreateTransactionDTO) => Promise<void>;
+  updateTransaction: (dto: UpdateTransactionDTO) => Promise<void>;
   deleteTransaction: (id: number) => Promise<void>;
 }
 
-export const useTransactionStore = create<TransactionState>((set) => ({
+export const useTransactionStore = create<TransactionState>((set, get) => ({
   transactions: [],
   monthlySpending: [],
   monthlyTotal: 0,
   predictedEndOfMonthSpend: 0,
+  hasLoaded: false,
   loading: false,
   error: null,
 
-  fetchTransactions: async () => {
+  fetchTransactions: async (force = false) => {
+    if (!force && get().hasLoaded) {
+      return;
+    }
+
     set({ loading: true, error: null });
     try {
       const transactions = await transactionRepository.getAll(200);
-      set({ transactions, loading: false });
+      set({ transactions, hasLoaded: true, loading: false });
     } catch (e) {
       set({ error: (e as Error).message, loading: false });
     }
@@ -65,11 +72,24 @@ export const useTransactionStore = create<TransactionState>((set) => ({
     try {
       await transactionRepository.create(dto);
       const transactions = await transactionRepository.getAll(200);
-      set({ transactions, error: null });
+      set({ transactions, hasLoaded: true, error: null });
       // Refresh account balances
       await useAccountStore.getState().refreshBalances();
     } catch (e) {
       set({ error: (e as Error).message });
+      throw e;
+    }
+  },
+
+  updateTransaction: async (dto) => {
+    try {
+      await transactionRepository.update(dto);
+      const transactions = await transactionRepository.getAll(200);
+      set({ transactions, hasLoaded: true, error: null });
+      await useAccountStore.getState().refreshBalances();
+    } catch (e) {
+      set({ error: (e as Error).message });
+      throw e;
     }
   },
 
@@ -77,7 +97,7 @@ export const useTransactionStore = create<TransactionState>((set) => ({
     try {
       await transactionRepository.delete(id);
       const transactions = await transactionRepository.getAll(200);
-      set({ transactions, error: null });
+      set({ transactions, hasLoaded: true, error: null });
       // Refresh account balances
       await useAccountStore.getState().refreshBalances();
     } catch (e) {

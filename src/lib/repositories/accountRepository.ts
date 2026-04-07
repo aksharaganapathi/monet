@@ -18,7 +18,7 @@ export const accountRepository = {
   async create(dto: CreateAccountDTO): Promise<Account> {
     const result = await invoke<{ lastInsertId: number }>('create_account', { 
       name: dto.name, 
-      type_: dto.type, 
+      type: dto.type, 
       balance: dto.balance,
       institution: dto.institution
     });
@@ -37,7 +37,7 @@ export const accountRepository = {
     await invoke('update_account', { 
       id: dto.id, 
       name: dto.name, 
-      type_: dto.type,
+      type: dto.type,
       institution: dto.institution
     });
     
@@ -52,6 +52,14 @@ export const accountRepository = {
     await invoke('update_account_balance', { id, delta });
   },
 
+  async setBalance(id: number, newBalance: number, note?: string): Promise<void> {
+    await invoke('set_account_balance', {
+      id,
+      newBalance,
+      note: note ?? null,
+    });
+  },
+
   async delete(id: number): Promise<void> {
     await invoke('delete_account', { id });
   },
@@ -59,5 +67,10 @@ export const accountRepository = {
   async getTotalBalance(): Promise<number> {
     const rows = await invoke<{ total: number }[]>('get_total_balance');
     return rows[0]?.total ?? 0;
+  },
+
+  async getBalanceSnapshots(): Promise<{ date: string; value: number }[]> {
+    const rows = await invoke<{ date: string; value: number }[]>('get_balance_snapshots');
+    return (rows ?? []).map((row) => ({ date: row.date, value: Number(row.value) }));
   },
 };

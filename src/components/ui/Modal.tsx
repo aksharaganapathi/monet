@@ -49,10 +49,10 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
         >
           <motion.div
             className={`w-full ${sizeClasses[size]} mx-4 glass-elevated rounded-2xl modal-shadow overflow-hidden border border-white/65`}
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            initial={{ opacity: 0, x: 64, scale: 0.98 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: 64, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 340, damping: 28, mass: 0.85 }}
             role="dialog"
             aria-modal="true"
             aria-label={title}

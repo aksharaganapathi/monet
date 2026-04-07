@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { invoke } from '@tauri-apps/api/core';
 import { accountRepository } from './accountRepository';
 import { TransactionSchema, TransactionWithDetailsSchema, MonthlySpendingSchema } from '../types';
-import type { Transaction, TransactionWithDetails, CreateTransactionDTO } from '../types';
+import type { Transaction, TransactionWithDetails, CreateTransactionDTO, UpdateTransactionDTO } from '../types';
 
 export const transactionRepository = {
   async getAll(limit = 100): Promise<TransactionWithDetails[]> {
@@ -37,8 +37,8 @@ export const transactionRepository = {
   async create(dto: CreateTransactionDTO): Promise<Transaction> {
     const result = await invoke<{ lastInsertId: number }>('create_transaction', { 
       amount: dto.amount, 
-      category_id: dto.category_id, 
-      account_id: dto.account_id, 
+      categoryId: dto.category_id,
+      accountId: dto.account_id,
       date: dto.date, 
       note: dto.note ?? null 
     });
@@ -63,6 +63,17 @@ export const transactionRepository = {
       await accountRepository.updateBalance(txn.account_id, -txn.amount);
     }
     await invoke('delete_transaction', { id });
+  },
+
+  async update(dto: UpdateTransactionDTO): Promise<void> {
+    await invoke('update_transaction', {
+      id: dto.id,
+      amount: dto.amount,
+      categoryId: dto.category_id,
+      accountId: dto.account_id,
+      date: dto.date,
+      note: dto.note ?? null,
+    });
   },
 
   async getDailyBalanceChanges(): Promise<{ date: string; daily_change: number }[]> {
