@@ -6,6 +6,8 @@ import { Button } from '../../components/ui/Button';
 import { useAccountStore } from '../../store/accountStore';
 import type { Account } from '../../lib/types';
 
+type AccountType = Account['type'];
+
 interface AccountFormProps {
   isOpen: boolean;
   onClose: () => void;
@@ -15,7 +17,7 @@ interface AccountFormProps {
 export function AccountForm({ isOpen, onClose, editingAccount }: AccountFormProps) {
   const { addAccount, updateAccount } = useAccountStore();
   const [name, setName] = useState('');
-  const [type, setType] = useState<'checking' | 'savings'>('checking');
+  const [type, setType] = useState<AccountType>('checking');
   const [institution, setInstitution] = useState<string>('other');
   const [balance, setBalance] = useState('');
   const [error, setError] = useState('');
@@ -73,10 +75,12 @@ export function AccountForm({ isOpen, onClose, editingAccount }: AccountFormProp
         <Select
           label="Account Type"
           value={type}
-          onChange={(e) => setType(e.target.value as 'checking' | 'savings')}
+          onChange={(e) => setType(e.target.value as AccountType)}
           options={[
             { value: 'checking', label: 'Checking' },
             { value: 'savings', label: 'Savings' },
+            { value: 'investment', label: 'Investment' },
+            { value: 'cash', label: 'Cash' },
           ]}
         />
         <Select

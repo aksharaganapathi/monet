@@ -12,6 +12,7 @@ interface TransactionState {
   addTransaction: (dto: CreateTransactionDTO) => Promise<void>;
   updateTransaction: (dto: UpdateTransactionDTO) => Promise<void>;
   deleteTransaction: (id: number) => Promise<void>;
+  setTransactionFlagged: (id: number, flagged: boolean) => Promise<void>;
 }
 
 export const useTransactionStore = create<TransactionState>((set, get) => ({
@@ -68,6 +69,17 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       await useAccountStore.getState().refreshBalances();
     } catch (e) {
       set({ error: (e as Error).message });
+    }
+  },
+
+  setTransactionFlagged: async (id, flagged) => {
+    try {
+      await transactionRepository.setFlagged(id, flagged);
+      const transactions = await transactionRepository.getAll(200);
+      set({ transactions, hasLoaded: true, error: null });
+    } catch (error) {
+      set({ error: (error as Error).message });
+      throw error;
     }
   },
 }));

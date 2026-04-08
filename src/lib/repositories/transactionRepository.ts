@@ -76,6 +76,10 @@ export const transactionRepository = {
     });
   },
 
+  async setFlagged(id: number, flagged: boolean): Promise<void> {
+    await invoke('set_transaction_flagged', { id, flagged });
+  },
+
   async getDailyBalanceChanges(): Promise<{ date: string; daily_change: number }[]> {
     const rows = await invoke<{ date: string; daily_change: number }[]>('get_daily_balance_changes');
     return rows ?? [];

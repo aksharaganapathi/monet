@@ -1,28 +1,35 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  LayoutDashboard,
-  ChartColumnBig,
-  Wallet,
-  ArrowLeftRight,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useUIStore } from '../store/uiStore';
+import { useBudgetStore } from '../store/budgetStore';
 import type { Page } from '../lib/types';
 import monetLogo from '../monet_logo.svg';
+import {
+  AccountsIcon,
+  BudgetsIcon,
+  DashboardIcon,
+  InsightsIcon,
+  SettingsIcon,
+  TransactionsIcon,
+} from './ui/AppIcons';
 
 const navItems: { page: Page; label: string; icon: React.ReactNode }[] = [
-  { page: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
-  { page: 'insights', label: 'Insights', icon: <ChartColumnBig size={20} /> },
-  { page: 'accounts', label: 'Accounts', icon: <Wallet size={20} /> },
-  { page: 'transactions', label: 'Transactions', icon: <ArrowLeftRight size={20} /> },
-  { page: 'settings', label: 'Settings', icon: <Settings size={20} /> },
+  { page: 'dashboard', label: 'Dashboard', icon: <DashboardIcon width={16} height={16} /> },
+  { page: 'insights', label: 'Insights', icon: <InsightsIcon width={16} height={16} /> },
+  { page: 'accounts', label: 'Accounts', icon: <AccountsIcon width={16} height={16} /> },
+  { page: 'transactions', label: 'Transactions', icon: <TransactionsIcon width={16} height={16} /> },
+  { page: 'budgets', label: 'Budgets', icon: <BudgetsIcon width={16} height={16} /> },
+  { page: 'settings', label: 'Settings', icon: <SettingsIcon width={16} height={16} /> },
 ];
 
 export function Sidebar() {
   const { activePage, setActivePage, isSidebarCollapsed, toggleSidebar } = useUIStore();
+  const { budgets, hasLoaded, fetchBudgets } = useBudgetStore();
+
+  React.useEffect(() => {
+    if (!hasLoaded) void fetchBudgets();
+  }, [fetchBudgets, hasLoaded]);
 
   return (
     <motion.aside
@@ -30,7 +37,6 @@ export function Sidebar() {
       animate={{ width: isSidebarCollapsed ? 40 : 224 }}
       transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
     >
-      {/* Logo / Brand */}
       <div className="flex items-center justify-center border-b border-border-subtle px-4 py-5">
         <AnimatePresence mode="wait">
           {!isSidebarCollapsed ? (
@@ -59,13 +65,15 @@ export function Sidebar() {
         </AnimatePresence>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 space-y-1 px-2 py-4" role="navigation" aria-label="Main navigation">
         {navItems.map(({ page, label, icon }) => {
           const isActive = activePage === page;
+          const showNewBadge = page === 'budgets' && budgets.length === 0;
+
           return (
             <button
               key={page}
+              type="button"
               onClick={() => setActivePage(page)}
               className={`
                 relative flex w-full items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-[13px] font-medium
@@ -87,18 +95,13 @@ export function Sidebar() {
                   exit={{ opacity: 0 }}
                 />
               )}
-              <span className="flex-shrink-0 relative z-10">{icon}</span>
+              <span className="relative z-10 flex shrink-0 items-center justify-center">{icon}</span>
               <AnimatePresence>
                 {!isSidebarCollapsed && (
-                  <motion.span
-                    initial={{ opacity: 0, width: 0 }}
-                    animate={{ opacity: 1, width: 'auto' }}
-                    exit={{ opacity: 0, width: 0 }}
-                    transition={{ duration: 0.15 }}
-                    className="overflow-hidden whitespace-nowrap relative z-10"
-                  >
-                    {label}
-                  </motion.span>
+                  <motion.div initial={{ opacity: 0, width: 0 }} animate={{ opacity: 1, width: 'auto' }} exit={{ opacity: 0, width: 0 }} transition={{ duration: 0.15 }} className="relative z-10 flex items-center gap-2 overflow-hidden whitespace-nowrap">
+                    <span>{label}</span>
+                    {showNewBadge && <span className="rounded-full bg-accent-subtle px-2 py-0.5 text-[10px] font-semibold text-accent">New</span>}
+                  </motion.div>
                 )}
               </AnimatePresence>
             </button>
@@ -106,9 +109,9 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Collapse toggle */}
-      <div className="px-3 pb-4">
+      <div className="px-2 pb-4">
         <button
+          type="button"
           onClick={toggleSidebar}
           className="surface-card flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-text-tertiary transition-colors hover:bg-surface-muted hover:text-text-secondary cursor-pointer"
           aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}

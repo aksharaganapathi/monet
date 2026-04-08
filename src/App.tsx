@@ -9,6 +9,7 @@ import { TransactionsPage } from './features/transactions/TransactionsPage';
 import { CategoriesPage } from './features/categories/CategoriesPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { InsightsPage } from './features/insights/InsightsPage';
+import { BudgetsPage } from './features/budgets/BudgetsPage';
 import { useUIStore } from './store/uiStore';
 import { Button } from './components/ui/Button';
 import { Input } from './components/ui/Input';
@@ -552,6 +553,9 @@ function App() {
       </div>
       <div className={activePage === 'transactions' ? 'block h-full' : 'hidden h-full'}>
         <TransactionsPage />
+      </div>
+      <div className={activePage === 'budgets' ? 'block h-full' : 'hidden h-full'}>
+        <BudgetsPage />
       </div>
       <div className={activePage === 'categories' ? 'block h-full' : 'hidden h-full'}>
         <CategoriesPage />

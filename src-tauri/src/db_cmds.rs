@@ -1,8 +1,37 @@
 use rusqlite::{params, params_from_iter, OptionalExtension};
+use serde::Serialize;
 use serde_json::{Map, Value};
 use tauri::{State, AppHandle, command};
 use std::env;
 use crate::AppState;
+
+#[derive(Serialize)]
+pub struct BudgetRow {
+    id: i64,
+    category_id: i64,
+    amount: f64,
+    period: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+pub struct CategoryRow {
+    id: i64,
+    name: String,
+    icon: Option<String>,
+    is_custom: i64,
+    created_at: String,
+}
+
+#[derive(Serialize)]
+pub struct BudgetProgressRow {
+    budget: BudgetRow,
+    category: CategoryRow,
+    spent: f64,
+    remaining: f64,
+    percent_used: f64,
+}
 
 fn value_to_sql_type(v: &Value) -> rusqlite::types::ToSqlOutput<'_> {
     match v {
@@ -558,6 +587,15 @@ pub fn get_monthly_total_spent(state: State<AppState>, start_date: Value, end_da
 }
 
 #[command]
+pub fn set_transaction_flagged(state: State<AppState>, id: Value, flagged: Value) -> Result<Value, String> {
+    execute_query(
+        &state,
+        "UPDATE transactions SET flagged = ?1 WHERE id = ?2",
+        vec![flagged, id],
+    )
+}
+
+#[command]
 pub fn create_transaction(state: State<AppState>, amount: Value, category_id: Value, account_id: Value, date: Value, note: Value) -> Result<Value, String> {
     let date_for_cache = date.as_str().map(|s| s.to_string());
     let result = execute_query(
@@ -643,6 +681,139 @@ pub fn delete_transaction(state: State<AppState>, id: Value) -> Result<Value, St
 #[command]
 pub fn get_transaction_by_id(state: State<AppState>, id: Value) -> Result<Vec<Value>, String> {
     select_query(&state, "SELECT * FROM transactions WHERE id = ?1", vec![id])
+}
+
+// ------ Budgets ------
+
+#[command]
+pub fn get_budgets(state: State<AppState>) -> Result<Vec<Value>, String> {
+    select_query(
+        &state,
+        "SELECT id, category_id, amount, period, created_at, updated_at FROM budgets ORDER BY updated_at DESC, id DESC",
+        vec![],
+    )
+}
+
+#[command]
+pub fn upsert_budget(state: State<AppState>, category_id: Value, amount: Value) -> Result<Value, String> {
+    let category_id_value = category_id.as_i64().ok_or("Invalid category id")?;
+    let amount_value = amount.as_f64().ok_or("Invalid budget amount")?;
+
+    let mut lock = state.db.lock().unwrap();
+    let conn = lock.as_mut().ok_or("Database not initialized")?;
+
+    conn.execute(
+        "
+        INSERT INTO budgets (category_id, amount, period, created_at, updated_at)
+        VALUES (?1, ?2, 'monthly', datetime('now'), datetime('now'))
+        ON CONFLICT(category_id) DO UPDATE SET
+            amount = excluded.amount,
+            period = 'monthly',
+            updated_at = datetime('now')
+        ",
+        params![category_id_value, amount_value],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let budget_id: i64 = conn
+        .query_row(
+            "SELECT id FROM budgets WHERE category_id = ?1",
+            params![category_id_value],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let amount_number = serde_json::Number::from_f64(amount_value).ok_or("Invalid budget amount")?;
+
+    let mut map = Map::new();
+    map.insert("lastInsertId".to_string(), Value::Number(budget_id.into()));
+    map.insert("rowsAffected".to_string(), Value::Number(1.into()));
+    map.insert("id".to_string(), Value::Number(budget_id.into()));
+    map.insert("category_id".to_string(), Value::Number(category_id_value.into()));
+    map.insert("amount".to_string(), Value::Number(amount_number));
+    map.insert("period".to_string(), Value::String("monthly".to_string()));
+    Ok(Value::Object(map))
+}
+
+#[command]
+pub fn delete_budget(state: State<AppState>, id: Value) -> Result<Value, String> {
+    execute_query(&state, "DELETE FROM budgets WHERE id = ?1", vec![id])
+}
+
+#[command]
+pub fn get_budget_progress(state: State<AppState>, month: String) -> Result<Vec<BudgetProgressRow>, String> {
+    if month.len() != 7 {
+        return Err("Invalid month".to_string());
+    }
+
+    let start_date = format!("{}-01", month);
+    let end_date = format!("{}-31", month);
+    let mut lock = state.db.lock().unwrap();
+    let conn = lock.as_mut().ok_or("Database not initialized")?;
+
+    let mut stmt = conn
+        .prepare(
+            "
+            SELECT
+                b.id,
+                b.category_id,
+                b.amount,
+                b.period,
+                b.created_at,
+                b.updated_at,
+                c.id,
+                c.name,
+                c.icon,
+                c.is_custom,
+                c.created_at,
+                COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END), 0) AS spent
+            FROM budgets b
+            JOIN categories c ON c.id = b.category_id
+            LEFT JOIN transactions t
+                ON t.category_id = b.category_id
+               AND t.date BETWEEN ?1 AND ?2
+            GROUP BY b.id, c.id
+            ORDER BY spent DESC, c.name ASC
+            ",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![start_date, end_date], |row| {
+            let amount: f64 = row.get(2)?;
+            let spent: f64 = row.get(11)?;
+            let remaining = amount - spent;
+            let percent_used = if amount > 0.0 { (spent / amount) * 100.0 } else { 0.0 };
+
+            Ok(BudgetProgressRow {
+                budget: BudgetRow {
+                    id: row.get(0)?,
+                    category_id: row.get(1)?,
+                    amount,
+                    period: row.get(3)?,
+                    created_at: row.get(4)?,
+                    updated_at: row.get(5)?,
+                },
+                category: CategoryRow {
+                    id: row.get(6)?,
+                    name: row.get(7)?,
+                    icon: row.get(8)?,
+                    is_custom: row.get(9)?,
+                    created_at: row.get(10)?,
+                },
+                spent,
+                remaining,
+                percent_used,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.map_err(|e| e.to_string())?);
+    }
+
+    Ok(results)
 }
 
 #[command]

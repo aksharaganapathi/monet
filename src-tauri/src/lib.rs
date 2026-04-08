@@ -171,9 +171,18 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             account_id INTEGER NOT NULL,
             date DATE NOT NULL,
             note TEXT,
+            flagged INTEGER NOT NULL DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (category_id) REFERENCES categories (id),
             FOREIGN KEY (account_id) REFERENCES accounts (id)
+        );
+        CREATE TABLE IF NOT EXISTS budgets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER REFERENCES categories(id) UNIQUE,
+            amount REAL NOT NULL,
+            period TEXT NOT NULL DEFAULT 'monthly',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS balance_snapshots (
             snapshot_date TEXT PRIMARY KEY,
@@ -194,6 +203,34 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         "ALTER TABLE accounts ADD COLUMN institution TEXT DEFAULT 'other'",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE transactions ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE budgets ADD COLUMN amount REAL",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE budgets ADD COLUMN period TEXT DEFAULT 'monthly'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE budgets ADD COLUMN created_at TEXT DEFAULT (datetime('now'))",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE budgets ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE budgets SET amount = monthly_limit WHERE amount IS NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE budgets SET period = COALESCE(period, 'monthly'), created_at = COALESCE(created_at, datetime('now')), updated_at = COALESCE(updated_at, datetime('now'))",
+        [],
+    );
 
     let default_categories = [
         ("Groceries", "shopping-basket"),
@@ -208,6 +245,10 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         ("Income", "banknote-arrow-up"),
         ("Transfers", "arrow-left-right"),
         ("Savings", "piggy-bank"),
+        ("Salary", "briefcase-business"),
+        ("Freelance", "badge-dollar-sign"),
+        ("Investment", "chart-line"),
+        ("Other", "shapes"),
     ];
 
     for (name, icon) in default_categories {
@@ -708,10 +749,15 @@ pub fn run() {
             db_cmds::get_transactions_by_date,
             db_cmds::get_monthly_spending,
             db_cmds::get_monthly_total_spent,
+            db_cmds::set_transaction_flagged,
             db_cmds::create_transaction,
             db_cmds::update_transaction,
             db_cmds::delete_transaction,
             db_cmds::get_transaction_by_id,
+            db_cmds::get_budgets,
+            db_cmds::upsert_budget,
+            db_cmds::delete_budget,
+            db_cmds::get_budget_progress,
             db_cmds::summarize_month_story,
             db_cmds::get_balance_snapshots,
             db_cmds::get_daily_balance_changes

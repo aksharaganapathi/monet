@@ -1,12 +1,9 @@
-// Monet — Type definitions
 import { z } from 'zod';
-
-// ─── Zod Schemas ───
 
 export const AccountSchema = z.object({
   id: z.number(),
   name: z.string(),
-  type: z.enum(['checking', 'savings']),
+  type: z.enum(['checking', 'savings', 'investment', 'cash']),
   balance: z.number(),
   institution: z.string().default('other'),
   created_at: z.string(),
@@ -28,13 +25,17 @@ export const TransactionSchema = z.object({
   account_id: z.number(),
   date: z.string(),
   note: z.string().nullable(),
+  flagged: z.union([z.number(), z.boolean()]).transform((value) => Boolean(value)),
   created_at: z.string(),
 });
 
 export const BudgetSchema = z.object({
   id: z.number(),
   category_id: z.number(),
-  monthly_limit: z.number(),
+  amount: z.number(),
+  period: z.literal('monthly'),
+  created_at: z.string(),
+  updated_at: z.string(),
 });
 
 export const RecurringSchema = z.object({
@@ -55,22 +56,28 @@ export const TransactionWithDetailsSchema = TransactionSchema.extend({
 
 export const MonthlySpendingSchema = z.object({
   category_name: z.string(),
-  total: z.number()
+  total: z.number(),
 });
 
-// ─── Database Models ───
+export const BudgetProgressSchema = z.object({
+  budget: BudgetSchema,
+  category: CategorySchema,
+  spent: z.number(),
+  remaining: z.number(),
+  percent_used: z.number(),
+});
 
 export type Account = z.infer<typeof AccountSchema>;
 export type Category = z.infer<typeof CategorySchema>;
 export type Transaction = z.infer<typeof TransactionSchema>;
 export type Budget = z.infer<typeof BudgetSchema>;
 export type Recurring = z.infer<typeof RecurringSchema>;
-
-// ─── Form DTOs ───
+export type TransactionWithDetails = z.infer<typeof TransactionWithDetailsSchema>;
+export type BudgetProgress = z.infer<typeof BudgetProgressSchema>;
 
 export interface CreateAccountDTO {
   name: string;
-  type: 'checking' | 'savings';
+  type: 'checking' | 'savings' | 'investment' | 'cash';
   balance: number;
   institution: string;
 }
@@ -78,7 +85,7 @@ export interface CreateAccountDTO {
 export interface UpdateAccountDTO {
   id: number;
   name: string;
-  type: 'checking' | 'savings';
+  type: 'checking' | 'savings' | 'investment' | 'cash';
   institution: string;
 }
 
@@ -111,10 +118,11 @@ export interface SetupStatus {
   canUseBiometricUnlock: boolean;
 }
 
-// ─── Enriched Types (with joins) ───
+export interface MonthSelection {
+  year: number;
+  month: number;
+}
 
-export type TransactionWithDetails = z.infer<typeof TransactionWithDetailsSchema>;
+export type TransactionDatePreset = 'thisMonth' | 'lastMonth' | 'last3Months' | 'custom';
 
-// ─── UI Types ───
-
-export type Page = 'dashboard' | 'insights' | 'accounts' | 'transactions' | 'categories' | 'settings';
+export type Page = 'dashboard' | 'insights' | 'accounts' | 'transactions' | 'budgets' | 'categories' | 'settings';
