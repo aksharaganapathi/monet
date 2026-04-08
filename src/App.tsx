@@ -288,8 +288,20 @@ function LockScreen({
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <button
                 type="button"
-                onClick={() => onToggleMode(false)}
-                className={`rounded-2xl border px-4 py-4 text-left transition-colors ${!usePassword ? 'border-accent bg-accent-subtle text-text-primary' : 'border-white/60 bg-white/55 text-text-secondary'}`}
+                onClick={() => {
+                  if (canUseBiometrics) {
+                    onToggleMode(false);
+                  }
+                }}
+                disabled={!canUseBiometrics}
+                aria-disabled={!canUseBiometrics}
+                className={`rounded-2xl border px-4 py-4 text-left transition-colors ${
+                  canUseBiometrics
+                    ? !usePassword
+                      ? 'border-accent bg-accent-subtle text-text-primary'
+                      : 'border-white/60 bg-white/55 text-text-secondary'
+                    : 'cursor-not-allowed border-border bg-surface-muted text-text-tertiary opacity-70'
+                }`}
               >
                 <p className="text-sm font-semibold">Biometric unlock</p>
                 <p className="mt-1 text-xs leading-5">{canUseBiometrics ? 'Use Windows Hello if it is already configured.' : 'Biometric unlock is not available on this setup.'}</p>

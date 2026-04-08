@@ -34,10 +34,14 @@ export function Sidebar() {
   return (
     <motion.aside
       className="z-20 flex h-full flex-col border-r border-border bg-sidebar"
-      animate={{ width: isSidebarCollapsed ? 40 : 224 }}
+      animate={{ width: isSidebarCollapsed ? 72 : 224 }}
       transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
     >
-      <div className="flex items-center justify-center border-b border-border-subtle px-4 py-5">
+      <div
+        className={`flex items-center justify-center border-b border-border-subtle ${
+          isSidebarCollapsed ? 'px-2 py-4' : 'px-4 py-5'
+        }`}
+      >
         <AnimatePresence mode="wait">
           {!isSidebarCollapsed ? (
             <motion.div
@@ -57,15 +61,19 @@ export function Sidebar() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -3 }}
               transition={{ duration: 0.16 }}
-              className="flex items-center justify-center p-1"
+              className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl"
             >
-              <img src={monetLogo} alt="Monet" className="h-14 w-auto" />
+              <img src={monetLogo} alt="Monet" className="h-10 w-10 object-contain" />
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      <nav className="flex-1 space-y-1 px-2 py-4" role="navigation" aria-label="Main navigation">
+      <nav
+        className={`flex-1 space-y-1 py-4 ${isSidebarCollapsed ? 'px-1.5' : 'px-2'}`}
+        role="navigation"
+        aria-label="Main navigation"
+      >
         {navItems.map(({ page, label, icon }) => {
           const isActive = activePage === page;
           const showNewBadge = page === 'budgets' && budgets.length === 0;
@@ -76,8 +84,9 @@ export function Sidebar() {
               type="button"
               onClick={() => setActivePage(page)}
               className={`
-                relative flex w-full items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-[13px] font-medium
+                relative flex w-full items-center overflow-hidden rounded-lg text-[13px] font-medium
                 cursor-pointer border border-transparent transition-colors duration-150
+                ${isSidebarCollapsed ? 'justify-center px-2 py-3' : 'gap-3 px-3 py-2.5'}
                 ${isActive
                   ? 'bg-sidebar-active text-accent font-semibold'
                   : 'text-text-secondary hover:bg-surface-muted hover:text-text-primary'
@@ -95,7 +104,7 @@ export function Sidebar() {
                   exit={{ opacity: 0 }}
                 />
               )}
-              <span className="relative z-10 flex shrink-0 items-center justify-center">{icon}</span>
+              <span className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center">{icon}</span>
               <AnimatePresence>
                 {!isSidebarCollapsed && (
                   <motion.div initial={{ opacity: 0, width: 0 }} animate={{ opacity: 1, width: 'auto' }} exit={{ opacity: 0, width: 0 }} transition={{ duration: 0.15 }} className="relative z-10 flex items-center gap-2 overflow-hidden whitespace-nowrap">
@@ -113,7 +122,9 @@ export function Sidebar() {
         <button
           type="button"
           onClick={toggleSidebar}
-          className="surface-card flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-text-tertiary transition-colors hover:bg-surface-muted hover:text-text-secondary cursor-pointer"
+          className={`surface-card flex w-full items-center justify-center rounded-lg text-text-tertiary transition-colors hover:bg-surface-muted hover:text-text-secondary cursor-pointer ${
+            isSidebarCollapsed ? 'px-2 py-2.5' : 'gap-2 px-3 py-2'
+          }`}
           aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {isSidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
