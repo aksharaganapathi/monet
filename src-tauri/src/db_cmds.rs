@@ -317,13 +317,14 @@ pub async fn summarize_month_story(state: State<'_, AppState>, app: AppHandle, y
         (income, expense, categories, total_tx_count, spend_tx_count)
     };
 
-    let fallback = fallback_month_story(income, expense, &categories);
-
     // Groq AI summaries require explicit user opt-in (H-4).
+    // Check this before any later AI-specific handling so opted-out users
+    // never receive cached or freshly generated AI output.
     if !crate::get_ai_enabled(&app) {
-        return Ok(fallback);
+        return Ok(fallback_month_story(income, expense, &categories));
     }
 
+    let fallback = fallback_month_story(income, expense, &categories);
     let api_key = match env::var("GROQ_API_KEY") {
         Ok(v) if !v.trim().is_empty() => v,
         _ => return Ok(fallback),
