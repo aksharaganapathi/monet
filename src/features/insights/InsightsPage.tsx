@@ -3,6 +3,12 @@ import { motion } from 'framer-motion';
 import { AlertTriangle, ArrowUpRight, Landmark, PiggyBank, Scale, Wallet } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Card } from '../../components/ui/Card';
+import {
+  calculateCashRunway,
+  calculateMonthlySavingsRate,
+  calculateTrailingAverageMonthlySpend,
+  summarizeCashFlow,
+} from '../../lib/finance';
 import { useAccountStore } from '../../store/accountStore';
 import { useTransactionStore } from '../../store/transactionStore';
 import { formatCurrency, formatDate, getCurrentMonth, getMonthName } from '../../lib/utils';
@@ -25,26 +31,6 @@ function monthDateFromOffset(year: number, month: number, offset: number): Date 
   return new Date(year, month - 1 + offset, 1);
 }
 
-function summarizeMonth(transactions: Array<{ date: string; amount: number }>, key: string) {
-  let income = 0;
-  let expense = 0;
-
-  for (const transaction of transactions) {
-    if (!transaction.date.startsWith(key)) continue;
-    if (transaction.amount >= 0) {
-      income += transaction.amount;
-    } else {
-      expense += Math.abs(transaction.amount);
-    }
-  }
-
-  return {
-    income,
-    expense,
-    net: income - expense,
-  };
-}
-
 export function InsightsPage() {
   const { accounts, totalBalance, hasLoaded: accountsLoaded, fetchAccounts } = useAccountStore();
   const { transactions, hasLoaded: transactionsLoaded, fetchTransactions } = useTransactionStore();
@@ -60,27 +46,29 @@ export function InsightsPage() {
     return Array.from({ length: 6 }, (_, index) => {
       const date = monthDateFromOffset(currentMonth.year, currentMonth.month, index - 5);
       const key = monthKey(date.getFullYear(), date.getMonth() + 1);
-      const summary = summarizeMonth(transactions, key);
+      const summary = summarizeCashFlow(transactions.filter((transaction) => transaction.date.startsWith(key)));
 
       return {
         key,
         label: getMonthName(date.getMonth() + 1).slice(0, 3),
         income: Number(summary.income.toFixed(2)),
-        expense: Number(summary.expense.toFixed(2)),
-        net: Number(summary.net.toFixed(2)),
+        expense: Number(summary.expenses.toFixed(2)),
+        net: Number(summary.netFlow.toFixed(2)),
       };
     });
   }, [currentMonth.month, currentMonth.year, transactions]);
 
   const trailingAverageExpense = useMemo(() => {
-    const recentMonths = monthlyTrend.filter((month) => month.expense > 0).slice(-3);
-    if (recentMonths.length === 0) return 0;
-    return recentMonths.reduce((sum, month) => sum + month.expense, 0) / recentMonths.length;
-  }, [monthlyTrend]);
+    return calculateTrailingAverageMonthlySpend(
+      transactions,
+      3,
+      new Date(currentMonth.year, currentMonth.month - 1, 1),
+    ).average;
+  }, [currentMonth.month, currentMonth.year, transactions]);
 
-  const liquidityMonths = trailingAverageExpense > 0 ? totalBalance / trailingAverageExpense : null;
+  const liquidityMonths = calculateCashRunway(totalBalance, trailingAverageExpense);
   const currentMonthSummary = monthlyTrend[monthlyTrend.length - 1] ?? { income: 0, expense: 0, net: 0 };
-  const savingsRate = currentMonthSummary.income > 0 ? (currentMonthSummary.net / currentMonthSummary.income) * 100 : 0;
+  const savingsRate = calculateMonthlySavingsRate(currentMonthSummary.income, currentMonthSummary.expense);
 
   const accountAllocation = useMemo(() => {
     const positiveAccounts = accounts
@@ -252,7 +240,7 @@ export function InsightsPage() {
                   <XAxis dataKey="label" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} tickFormatter={(value) => `$${Math.round(Number(value) / 1000)}k`} />
                   <Tooltip
-                    formatter={(value: number, name: string) => [formatCurrency(value), name === 'income' ? 'Income' : 'Spending']}
+                    formatter={(value, name) => [formatCurrency(Number(value ?? 0)), name === 'income' ? 'Income' : 'Spending']}
                     contentStyle={{ borderRadius: 12, border: '1px solid rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.94)' }}
                   />
                   <Bar dataKey="income" fill="#10B981" radius={[8, 8, 0, 0]} />

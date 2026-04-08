@@ -5,14 +5,10 @@ import { useAccountStore } from './accountStore';
 
 interface TransactionState {
   transactions: TransactionWithDetails[];
-  monthlySpending: { category_name: string; total: number }[];
-  monthlyTotal: number;
-  predictedEndOfMonthSpend: number;
   hasLoaded: boolean;
   loading: boolean;
   error: string | null;
   fetchTransactions: (force?: boolean) => Promise<void>;
-  fetchMonthlySpending: (year: number, month: number) => Promise<void>;
   addTransaction: (dto: CreateTransactionDTO) => Promise<void>;
   updateTransaction: (dto: UpdateTransactionDTO) => Promise<void>;
   deleteTransaction: (id: number) => Promise<void>;
@@ -20,9 +16,6 @@ interface TransactionState {
 
 export const useTransactionStore = create<TransactionState>((set, get) => ({
   transactions: [],
-  monthlySpending: [],
-  monthlyTotal: 0,
-  predictedEndOfMonthSpend: 0,
   hasLoaded: false,
   loading: false,
   error: null,
@@ -38,33 +31,6 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       set({ transactions, hasLoaded: true, loading: false });
     } catch (e) {
       set({ error: (e as Error).message, loading: false });
-    }
-  },
-
-  fetchMonthlySpending: async (year, month) => {
-    try {
-      const [monthlySpending, monthlyTotal] = await Promise.all([
-        transactionRepository.getMonthlySpending(year, month),
-        transactionRepository.getMonthlyTotal(year, month),
-      ]);
-
-      // Simple Predictive Analytics: Calculate run rate
-      const today = new Date();
-      let predictedEndOfMonthSpend = monthlyTotal;
-      
-      // Only predict for the current month
-      if (today.getFullYear() === year && today.getMonth() + 1 === month) {
-        const currentDay = today.getDate();
-        const daysInMonth = new Date(year, month, 0).getDate();
-        if (currentDay > 0) {
-          const runRate = monthlyTotal / currentDay;
-          predictedEndOfMonthSpend = runRate * daysInMonth;
-        }
-      }
-
-      set({ monthlySpending, monthlyTotal, predictedEndOfMonthSpend });
-    } catch (e) {
-      set({ error: (e as Error).message });
     }
   },
 

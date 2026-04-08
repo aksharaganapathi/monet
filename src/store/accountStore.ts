@@ -109,15 +109,7 @@ export const useAccountStore = create<AccountState>((set, get) => ({
 
   fetchNetWorthTrend: async () => {
     try {
-      const totalBalance = get().totalBalance || (await accountRepository.getTotalBalance());
       const snapshots = await accountRepository.getBalanceSnapshots();
-
-      if (snapshots.length === 0) {
-        const today = new Date().toISOString().split('T')[0];
-        set({ netWorthTrend: [{ date: today, value: totalBalance }] });
-        return;
-      }
-
       set({ netWorthTrend: snapshots });
     } catch (e) {
       console.error("Net worth trend error:", e);
