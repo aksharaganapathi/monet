@@ -860,26 +860,34 @@ pub fn unlock_with_password_command(
     password: String,
 ) -> Result<SetupStatus, String> {
     // --- Brute-force protection (H-5) ---
-    // Atomically read and pre-increment the attempt counter.  If the counter
-    // was already at or above the limit when we read it, reject immediately.
-    let attempt = state.failed_auth_attempts.load(Ordering::SeqCst);
+    // Atomically reserve an attempt slot.  `fetch_add` returns the value *before*
+    // the increment, so we check whether the slot we just took pushes us at or
+    // past the limit.  This means every concurrent caller increments the counter
+    // before it does any work, making it impossible for two callers to both see a
+    // value below MAX_FAILED_ATTEMPTS and proceed simultaneously.
+    let slot = state.failed_auth_attempts.fetch_add(1, Ordering::SeqCst);
 
-    if attempt >= MAX_FAILED_ATTEMPTS {
+    if slot >= MAX_FAILED_ATTEMPTS {
+        // Counter is already past the limit; do not even attempt authentication.
+        // Leave the counter incremented so it stays locked.
         return Err(
             "E-AUTH-LOCKED: Too many failed attempts. Restart Monet to try again.".to_string(),
         );
     }
 
-    // Exponential back-off: 0 s, 1 s, 2 s, 4 s, 8 s, 16 s (capped at MAX_BACKOFF_POWER).
-    if attempt > 0 {
-        let backoff_power = (attempt - 1).min(MAX_BACKOFF_POWER);
+    // Exponential back-off based on previous failures (slot = number already tried).
+    // slot == 0: first attempt, no delay.
+    // slot == 1: second attempt (1 prior failure), 1 s delay.
+    // slot == N: 2^(min(N-1, MAX_BACKOFF_POWER)) seconds.
+    if slot > 0 {
+        let backoff_power = (slot - 1).min(MAX_BACKOFF_POWER);
         let delay_secs = 1u64 << backoff_power;
         std::thread::sleep(std::time::Duration::from_secs(delay_secs));
     }
 
     match unlock_with_password_internal(state, app, &password) {
         Ok(config) => {
-            // Reset counter on success.
+            // Success: reset the counter so future unlock attempts start fresh.
             state.failed_auth_attempts.store(0, Ordering::SeqCst);
             Ok(SetupStatus {
                 is_configured: true,
@@ -890,7 +898,7 @@ pub fn unlock_with_password_command(
             })
         }
         Err(e) => {
-            state.failed_auth_attempts.fetch_add(1, Ordering::SeqCst);
+            // Slot was already counted by the fetch_add above; nothing more to do.
             Err(e)
         }
     }
