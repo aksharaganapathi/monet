@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowDownRight, ArrowUpRight, ChevronLeft, ChevronRight, Plus, ShieldAlert, Sparkles, Target } from 'lucide-react';
-import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { ChevronLeft, ChevronRight, Plus, Sparkles, Target } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { insightsRepository } from '../../lib/repositories/insightsRepository';
+import {
+  calculateCashRunway,
+  calculateHealthScore,
+  calculateMonthlySavingsRate,
+  calculateNetWorth,
+  calculateTrailingAverageMonthlySpend,
+  getSpendingConcentration,
+  summarizeCashFlow,
+} from '../../lib/finance';
 import { useUIStore } from '../../store/uiStore';
 import { useAccountStore } from '../../store/accountStore';
 import { useTransactionStore } from '../../store/transactionStore';
@@ -20,136 +28,352 @@ const item = {
   show: { opacity: 1, y: 0 },
 };
 
-const SPENDING_COLORS = ['#2E6F95', '#1F8A70', '#D97706', '#C2410C', '#7C3AED'];
+type Point = { x: number; y: number };
+type FocusTone = 'critical' | 'warn' | 'ok' | 'info';
 
 function monthKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, '0')}`;
 }
 
-function monthDateFromOffset(year: number, month: number, offset: number): Date {
-  return new Date(year, month - 1 + offset, 1);
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
-function summarizeMonth(transactions: Array<{ date: string; amount: number }>, key: string) {
-  let income = 0;
-  let expense = 0;
-  for (const txn of transactions) {
-    if (!txn.date.startsWith(key)) continue;
-    if (txn.amount >= 0) income += txn.amount;
-    else expense += Math.abs(txn.amount);
+function getFirstSentence(value: string): string {
+  const match = value.match(/.+?[.!?](\s|$)/);
+  return match?.[0]?.trim() || value.trim();
+}
+
+function buildSparklinePoints(values: number[], width: number, height: number, padding = 4): Point[] {
+  if (values.length === 0) {
+    return [];
   }
-  return { income, expense, netFlow: income - expense };
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+
+  return values.map((value, index) => ({
+    x: padding + (index / Math.max(values.length - 1, 1)) * (width - padding * 2),
+    y: height - padding - ((value - min) / span) * (height - padding * 2),
+  }));
+}
+
+function buildLinePath(points: Point[]): string {
+  if (points.length === 0) {
+    return '';
+  }
+
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+}
+
+function toneColor(tone: 'positive' | 'gold' | 'warning' | 'negative'): string {
+  if (tone === 'positive') return 'var(--color-income)';
+  if (tone === 'warning') return 'var(--color-warning)';
+  if (tone === 'negative') return 'var(--color-expense)';
+  return 'var(--color-accent)';
+}
+
+function pillToneClasses(tone: 'positive' | 'warning' | 'negative') {
+  if (tone === 'positive') {
+    return 'bg-income-subtle text-income';
+  }
+
+  if (tone === 'warning') {
+    return 'bg-warning-subtle text-warning';
+  }
+
+  return 'bg-expense-subtle text-expense';
+}
+
+function focusToneStyles(tone: FocusTone) {
+  if (tone === 'critical') {
+    return {
+      backgroundColor: 'var(--color-expense-subtle)',
+      borderLeftColor: 'var(--color-expense)',
+    };
+  }
+
+  if (tone === 'warn') {
+    return {
+      backgroundColor: '#FFFBF0',
+      borderLeftColor: 'var(--color-warning)',
+    };
+  }
+
+  if (tone === 'ok') {
+    return {
+      backgroundColor: '#F0FAF5',
+      borderLeftColor: 'var(--color-income)',
+    };
+  }
+
+  return {
+    backgroundColor: '#F0F4FF',
+    borderLeftColor: 'var(--color-info)',
+  };
+}
+
+function Sparkline({
+  values,
+  width,
+  height,
+  color,
+  dashed = false,
+}: {
+  values: number[];
+  width: number;
+  height: number;
+  color: string;
+  dashed?: boolean;
+}) {
+  const points = buildSparklinePoints(values, width, height);
+  const path = buildLinePath(points);
+
+  if (!path) {
+    return null;
+  }
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="w-full">
+      <path
+        d={path}
+        fill="none"
+        stroke={color}
+        strokeWidth={2}
+        strokeDasharray={dashed ? '5 5' : undefined}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ProgressRing({ score, tone }: { score: number; tone: 'positive' | 'gold' | 'warning' | 'negative' }) {
+  const radius = 46;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference - (score / 100) * circumference;
+  const color = toneColor(tone);
+
+  return (
+    <div className="relative h-28 w-28">
+      <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+        <circle cx="60" cy="60" r={radius} fill="none" stroke="var(--color-border-subtle)" strokeWidth="8" />
+        <circle
+          cx="60"
+          cy="60"
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth="8"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="numeric-display text-3xl font-semibold text-text-primary">{score}</span>
+        <span className="text-[11px] uppercase tracking-[0.18em] text-text-secondary">Score</span>
+      </div>
+    </div>
+  );
 }
 
 export function DashboardPage({ userName }: { userName?: string }) {
-  const { totalBalance, netWorthTrend, hasLoaded: accountsLoaded, fetchAccounts, fetchNetWorthTrend } = useAccountStore();
+  const {
+    accounts,
+    totalBalance,
+    netWorthTrend,
+    hasLoaded: accountsLoaded,
+    fetchAccounts,
+    fetchNetWorthTrend,
+  } = useAccountStore();
   const {
     transactions,
-    monthlySpending,
-    predictedEndOfMonthSpend,
     hasLoaded: transactionsLoaded,
     fetchTransactions,
-    fetchMonthlySpending,
   } = useTransactionStore();
   const { openTransactionForm, setActivePage } = useUIStore();
 
   const [targetDate, setTargetDate] = useState(getCurrentMonth());
   const [monthStory, setMonthStory] = useState('Summarizing your month...');
   const [storyLoading, setStoryLoading] = useState(false);
+  const [isStoryExpanded, setIsStoryExpanded] = useState(false);
 
   useEffect(() => {
-    if (!accountsLoaded) fetchAccounts();
-    if (!transactionsLoaded) fetchTransactions();
+    if (!accountsLoaded) {
+      void fetchAccounts();
+    }
+    if (!transactionsLoaded) {
+      void fetchTransactions();
+    }
   }, [accountsLoaded, transactionsLoaded, fetchAccounts, fetchTransactions]);
 
   useEffect(() => {
-    if (accountsLoaded) fetchNetWorthTrend();
-  }, [accountsLoaded, totalBalance, transactions.length, fetchNetWorthTrend]);
+    if (accountsLoaded) {
+      void fetchNetWorthTrend();
+    }
+  }, [accountsLoaded, totalBalance, fetchNetWorthTrend]);
 
   useEffect(() => {
-    if (transactionsLoaded) fetchMonthlySpending(targetDate.year, targetDate.month);
-  }, [transactionsLoaded, targetDate.year, targetDate.month, fetchMonthlySpending]);
+    if (!transactionsLoaded) {
+      return;
+    }
 
-  const currentMonthKey = monthKey(targetDate.year, targetDate.month);
-  const previousMonthDate = monthDateFromOffset(targetDate.year, targetDate.month, -1);
-  const previousMonthKey = monthKey(previousMonthDate.getFullYear(), previousMonthDate.getMonth() + 1);
-
-  const currentSummary = useMemo(() => summarizeMonth(transactions, currentMonthKey), [transactions, currentMonthKey]);
-  const previousSummary = useMemo(() => summarizeMonth(transactions, previousMonthKey), [transactions, previousMonthKey]);
-
-  const savingsRate = currentSummary.income > 0 ? (currentSummary.netFlow / currentSummary.income) * 100 : 0;
-  const spendingRate = currentSummary.income > 0 ? (currentSummary.expense / currentSummary.income) * 100 : 0;
-  const previousSavingsRate = previousSummary.income > 0 ? (previousSummary.netFlow / previousSummary.income) * 100 : 0;
-  const savingsRateDelta = savingsRate - previousSavingsRate;
-  const forecastGap = predictedEndOfMonthSpend - currentSummary.expense;
-
-  const netWorthMiniData = useMemo(() => {
-    const base = netWorthTrend.length === 0
-      ? [{ date: new Date().toISOString().split('T')[0], value: totalBalance }]
-      : netWorthTrend;
-    return base.slice(-45);
-  }, [netWorthTrend, totalBalance]);
-
-  const donutData = useMemo(() => {
-    if (monthlySpending.length === 0) return [];
-    return [...monthlySpending]
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5)
-      .map((entry, idx) => ({ ...entry, fill: SPENDING_COLORS[idx % SPENDING_COLORS.length] }));
-  }, [monthlySpending]);
-
-  const topCategory = donutData[0];
-  const topCategoryShare = currentSummary.expense > 0 && topCategory ? (topCategory.total / currentSummary.expense) * 100 : 0;
-  const spendRunway = currentSummary.income - predictedEndOfMonthSpend;
-
-  useEffect(() => {
-    if (!transactionsLoaded) return;
     let active = true;
+    setIsStoryExpanded(false);
 
     const fetchStory = async () => {
       setStoryLoading(true);
       try {
         const summary = await insightsRepository.getMonthStory(targetDate.year, targetDate.month);
-        if (active) setMonthStory(summary || 'No story available for this month yet.');
+        if (active) {
+          setMonthStory(summary || 'No story available for this month yet.');
+        }
       } catch {
-        if (active) setMonthStory('No story available for this month yet.');
+        if (active) {
+          setMonthStory('No story available for this month yet.');
+        }
       } finally {
-        if (active) setStoryLoading(false);
+        if (active) {
+          setStoryLoading(false);
+        }
       }
     };
 
-    fetchStory();
+    void fetchStory();
+
     return () => {
       active = false;
     };
-  }, [transactionsLoaded, targetDate.year, targetDate.month, transactions.length]);
+  }, [transactionsLoaded, targetDate.month, targetDate.year]);
+
+  const currentMonthKey = monthKey(targetDate.year, targetDate.month);
+  const currentMonthTransactions = useMemo(
+    () => transactions.filter((transaction) => transaction.date.startsWith(currentMonthKey)),
+    [transactions, currentMonthKey],
+  );
+
+  const currentSummary = useMemo(
+    () => summarizeCashFlow(currentMonthTransactions),
+    [currentMonthTransactions],
+  );
+
+  const computedNetWorth = useMemo(
+    () => (accounts.length > 0 ? calculateNetWorth(accounts) : totalBalance),
+    [accounts, totalBalance],
+  );
+
+  const positiveBalanceTotal = useMemo(
+    () => sumPositiveBalances(accounts),
+    [accounts],
+  );
+
+  const trailingSpend = useMemo(
+    () => calculateTrailingAverageMonthlySpend(
+      transactions,
+      3,
+      new Date(targetDate.year, targetDate.month - 1, 1),
+    ),
+    [targetDate.month, targetDate.year, transactions],
+  );
+
+  const savingsRate = useMemo(
+    () => calculateMonthlySavingsRate(currentSummary.income, currentSummary.expenses),
+    [currentSummary.expenses, currentSummary.income],
+  );
+
+  const cashRunway = useMemo(
+    () => calculateCashRunway(positiveBalanceTotal, trailingSpend.average),
+    [positiveBalanceTotal, trailingSpend.average],
+  );
+
+  const concentration = useMemo(
+    () => getSpendingConcentration(currentMonthTransactions),
+    [currentMonthTransactions],
+  );
+
+  const healthScore = useMemo(
+    () =>
+      calculateHealthScore({
+        savingsRate,
+        cashRunwayMonths: cashRunway,
+        spendingConcentrationShare: concentration.share,
+        hasIncome: currentSummary.income > 0,
+        transactionCount: currentMonthTransactions.length,
+      }),
+    [cashRunway, concentration.share, currentMonthTransactions.length, currentSummary.income, savingsRate],
+  );
+
+  const storyPreview = useMemo(() => getFirstSentence(monthStory), [monthStory]);
+
+  const netWorthSparklineValues = useMemo(
+    () => netWorthTrend.slice(-45).map((point) => point.value),
+    [netWorthTrend],
+  );
+
+  const hasMultiMonthTrend = useMemo(
+    () => new Set(netWorthTrend.map((point) => point.date.slice(0, 7))).size > 1,
+    [netWorthTrend],
+  );
+
+  const hasSevenDaysOfTrend = useMemo(
+    () => new Set(netWorthTrend.map((point) => point.date)).size >= 7,
+    [netWorthTrend],
+  );
+
+  const progressWidth = clamp(Math.max(savingsRate, 0), 0, 100);
+  const savingsBadgeText =
+    savingsRate >= 0 ? `${savingsRate.toFixed(1)}% saved` : `${Math.abs(savingsRate).toFixed(1)}% overspent`;
+
+  const runwayBadge = getRunwayBadge(cashRunway);
+  const focusAreas = useMemo(
+    () =>
+      buildFocusAreas({
+        savingsRate,
+        cashRunway,
+        concentrationShare: concentration.share,
+        concentrationCategory: concentration.categoryName,
+        transactionCount: currentMonthTransactions.length,
+        hasIncome: currentSummary.income > 0,
+      }).slice(0, 3),
+    [cashRunway, concentration.categoryName, concentration.share, currentMonthTransactions.length, currentSummary.income, savingsRate],
+  );
 
   const prevMonth = () => {
-    setTargetDate((prev) => (prev.month === 1 ? { year: prev.year - 1, month: 12 } : { year: prev.year, month: prev.month - 1 }));
+    setTargetDate((prev) =>
+      prev.month === 1 ? { year: prev.year - 1, month: 12 } : { year: prev.year, month: prev.month - 1 },
+    );
   };
 
   const nextMonth = () => {
-    setTargetDate((prev) => (prev.month === 12 ? { year: prev.year + 1, month: 1 } : { year: prev.year, month: prev.month + 1 }));
+    setTargetDate((prev) =>
+      prev.month === 12 ? { year: prev.year + 1, month: 1 } : { year: prev.year, month: prev.month + 1 },
+    );
   };
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1 pb-4">
       <motion.div variants={item} className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-secondary">{userName ? `Hello ${userName}` : 'Dashboard'}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-secondary">
+            {userName ? `Hello ${userName}` : 'Dashboard'}
+          </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">Financial standing</h1>
-          <p className="mt-1 text-sm text-text-secondary">A compact read on stability, spending pressure, and what deserves attention.</p>
+          <p className="mt-1 text-sm text-text-secondary">
+            A calm read on the month: what you kept, how much buffer you have, and where attention belongs.
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-lg border border-white/50 bg-white/70 px-1.5 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] backdrop-blur-md">
-            <button onClick={prevMonth} className="cursor-pointer rounded p-1 text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary" aria-label="Previous month">
+          <div className="surface-card flex items-center gap-2 rounded-lg px-1.5 py-1">
+            <button onClick={prevMonth} className="rounded-md p-1 text-text-secondary transition-colors hover:bg-accent-subtle hover:text-text-primary" aria-label="Previous month">
               <ChevronLeft size={14} />
             </button>
-            <span className="min-w-20 text-center text-xs font-semibold">
+            <span className="min-w-24 text-center text-xs font-semibold text-text-primary">
               {getMonthName(targetDate.month)} {targetDate.year}
             </span>
-            <button onClick={nextMonth} className="cursor-pointer rounded p-1 text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary" aria-label="Next month">
+            <button onClick={nextMonth} className="rounded-md p-1 text-text-secondary transition-colors hover:bg-accent-subtle hover:text-text-primary" aria-label="Next month">
               <ChevronRight size={14} />
             </button>
           </div>
@@ -164,165 +388,318 @@ export function DashboardPage({ userName }: { userName?: string }) {
       </motion.div>
 
       <div className="grid grid-cols-12 gap-3">
-        <motion.div variants={item} className="col-span-12 lg:col-span-6">
-          <Card className="rounded-[24px] p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-accent-subtle text-accent">
-                  <Sparkles size={15} />
-                </span>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">AI Summary</p>
-                  <p className="text-xs text-text-secondary">Short monthly readout</p>
-                </div>
+        <motion.div variants={item} className="col-span-12 md:col-span-4">
+          <Card className="h-full rounded-xl p-5">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-text-secondary">Net Worth</p>
+            <p className="numeric-display mt-3 text-3xl font-semibold text-accent">{formatCurrency(computedNetWorth)}</p>
+            <p className="mt-1 text-sm text-text-secondary">across {accounts.length} account{accounts.length === 1 ? '' : 's'}</p>
+            {hasMultiMonthTrend && netWorthSparklineValues.length > 1 ? (
+              <div className="mt-5">
+                <Sparkline values={netWorthSparklineValues} width={280} height={54} color="var(--color-accent)" />
               </div>
-            </div>
-            <p className={`mt-3 text-sm leading-6 text-text-primary ${storyLoading ? 'animate-pulse' : ''}`}>{monthStory}</p>
+            ) : (
+              <p className="mt-5 text-xs text-text-tertiary">Add more history to unlock a longer net worth trend.</p>
+            )}
           </Card>
         </motion.div>
 
-        <motion.div variants={item} className="col-span-12 lg:col-span-6">
-          <Card className="rounded-[24px] p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Net Worth</p>
-                <p className={`mt-1 text-2xl font-semibold numeric-display ${totalBalance >= 0 ? 'text-text-primary' : 'text-expense'}`}>
-                  {formatCurrency(totalBalance)}
-                </p>
-              </div>
-              <p className="text-[11px] text-text-secondary">Last 45 days</p>
+        <motion.div variants={item} className="col-span-12 md:col-span-4">
+          <Card className="h-full rounded-xl p-5">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-text-secondary">Monthly Net Flow</p>
+            <p className={`numeric-display mt-3 text-3xl font-semibold ${currentSummary.netFlow >= 0 ? 'text-income' : 'text-expense'}`}>
+              {formatCurrency(currentSummary.netFlow)}
+            </p>
+            <p className="mt-1 text-sm text-text-secondary">kept after expenses</p>
+            <div className="mt-5 h-1 w-full overflow-hidden rounded-full bg-surface-muted">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${progressWidth}%`,
+                  background: 'linear-gradient(90deg, var(--color-income) 0%, var(--color-accent) 100%)',
+                }}
+              />
             </div>
-            <div className="mt-2 h-[120px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={netWorthMiniData} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="dashboardWorth" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#A88B4A" stopOpacity={0.18} />
-                      <stop offset="100%" stopColor="#A88B4A" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="date" tickFormatter={formatDateShort} hide />
-                  <YAxis hide />
-                  <Tooltip
-                    cursor={{ stroke: 'rgba(168,139,74,0.35)', strokeWidth: 1, strokeDasharray: '4 4' }}
-                    labelFormatter={(label) => formatDateShort(String(label))}
-                    formatter={(value) => [formatCurrency(Number(value)), 'Net worth']}
-                    contentStyle={{ borderRadius: 10, border: '1px solid rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.92)' }}
-                  />
-                  <Area type="monotone" dataKey="value" stroke="#A88B4A" strokeWidth={2.2} fill="url(#dashboardWorth)" dot={false} isAnimationActive={false} />
-                </AreaChart>
-              </ResponsiveContainer>
+            <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${savingsRate >= 0 ? 'bg-income-subtle text-income' : 'bg-expense-subtle text-expense'}`}>
+              {savingsBadgeText}
+            </span>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={item} className="col-span-12 md:col-span-4">
+          <Card className="h-full rounded-xl p-5">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-text-secondary">Cash Runway</p>
+            <p className="numeric-display mt-3 text-3xl font-semibold text-text-primary">
+              {cashRunway == null ? 'N/A' : `${cashRunway.toFixed(1)} mo`}
+            </p>
+            <div className="mt-3">
+              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${runwayBadge.className}`}>
+                {runwayBadge.label}
+              </span>
             </div>
+            <p className="mt-3 text-sm text-text-secondary">estimated months of expenses covered</p>
+            {trailingSpend.monthCount > 0 && trailingSpend.monthCount < 3 && (
+              <p className="mt-2 text-xs text-text-tertiary">Based on {trailingSpend.monthCount} month{trailingSpend.monthCount === 1 ? '' : 's'} of spending history.</p>
+            )}
+            {trailingSpend.monthCount === 0 && (
+              <p className="mt-2 text-xs text-text-tertiary">Add spending history to estimate a runway.</p>
+            )}
           </Card>
         </motion.div>
       </div>
 
-      <div className="grid grid-cols-12 items-start gap-3">
-        <motion.div variants={item} className="col-span-12 xl:col-span-7">
-          <div className="grid grid-cols-12 gap-3">
-            <Card className="col-span-12 sm:col-span-6 rounded-[24px] p-4">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Monthly Net Flow</p>
-              <p className={`mt-2 text-2xl font-semibold numeric-display ${currentSummary.netFlow >= 0 ? 'text-income' : 'text-expense'}`}>
-                {formatCurrency(currentSummary.netFlow)}
-              </p>
-              <p className="mt-2 text-xs leading-5 text-text-secondary">What you kept after income and spending this month.</p>
-            </Card>
-
-            <Card className="col-span-12 sm:col-span-6 rounded-[24px] p-4">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Savings Rate</p>
-              <p className={`mt-2 text-2xl font-semibold numeric-display ${savingsRate >= 0 ? 'text-income' : 'text-expense'}`}>
-                {savingsRate.toFixed(1)}%
-              </p>
-              <div className={`mt-2 flex items-center gap-1 text-xs ${savingsRateDelta >= 0 ? 'text-income' : 'text-expense'}`}>
-                {savingsRateDelta >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                <span>{Math.abs(savingsRateDelta).toFixed(1)} pts vs last month</span>
+      <motion.div variants={item}>
+        <Card className="rounded-xl p-6">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-5">
+              <ProgressRing score={healthScore.score} tone={healthScore.tone} />
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-text-secondary">Financial Health Score</p>
+                <p className="mt-2 text-3xl font-semibold text-text-primary">{healthScore.band}</p>
+                <p className="mt-2 max-w-xl text-sm text-text-secondary">
+                  Built from savings pace, cash runway, spending concentration, income coverage, and data depth.
+                </p>
               </div>
-            </Card>
+            </div>
 
-            <Card className="col-span-12 sm:col-span-6 rounded-[24px] p-4">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-warning-subtle text-warning">
-                  <ShieldAlert size={15} />
-                </span>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Spending Pressure</p>
-                  <p className="mt-1 text-lg font-semibold numeric-display text-text-primary">{spendingRate.toFixed(1)}%</p>
+            <div className="flex flex-wrap gap-2 lg:max-w-[48%] lg:justify-end">
+              {healthScore.signals.map((signal) => (
+                <button
+                  key={signal.key}
+                  type="button"
+                  onClick={() => setActivePage('insights')}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${pillToneClasses(signal.tone)} hover:brightness-95`}
+                >
+                  {signal.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </Card>
+      </motion.div>
+
+      <div className="grid grid-cols-12 gap-3">
+        <motion.div variants={item} className="col-span-12 xl:col-span-8">
+          <div className="grid gap-3">
+            <Card className="rounded-xl p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent-subtle text-accent">
+                    <Sparkles size={18} />
+                  </span>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-text-secondary">AI Summary</p>
+                    <p className="text-sm text-text-secondary">A short monthly readout in plain language.</p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setIsStoryExpanded((current) => !current)}
+                  className="text-sm font-medium text-accent transition-colors hover:text-accent-hover"
+                >
+                  {isStoryExpanded ? 'Show less' : 'Read more'}
+                </button>
               </div>
-              <p className="mt-3 text-xs leading-5 text-text-secondary">
-                {topCategory ? `${topCategory.category_name} is your largest category at ${topCategoryShare.toFixed(0)}% of total spending.` : 'No dominant spending category yet this month.'}
+
+              <p className={`mt-4 text-sm leading-6 text-text-primary ${storyLoading ? 'animate-pulse' : ''}`}>
+                {isStoryExpanded ? monthStory : storyPreview}
               </p>
             </Card>
 
-            <Card className="col-span-12 sm:col-span-6 rounded-[24px] p-4">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-income-subtle text-income">
-                  <Target size={15} />
-                </span>
+            <Card className="rounded-xl p-5">
+              <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Month-End Outlook</p>
-                  <p className={`mt-1 text-lg font-semibold numeric-display ${spendRunway >= 0 ? 'text-income' : 'text-expense'}`}>
-                    {formatCurrency(spendRunway)}
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-text-secondary">Net Worth Trend</p>
+                  <p className="mt-1 text-sm text-text-secondary">Track your balance snapshots over time.</p>
+                </div>
+                <span className="text-xs text-text-tertiary">
+                  {netWorthTrend.length > 0 ? `${netWorthTrend.length} snapshots` : 'No history yet'}
+                </span>
+              </div>
+
+              {hasSevenDaysOfTrend ? (
+                <div className="mt-6">
+                  <div className="h-56 rounded-xl bg-surface-muted px-4 py-6">
+                    <Sparkline values={netWorthTrend.map((point) => point.value)} width={760} height={170} color="var(--color-accent)" />
+                  </div>
+                  <div className="mt-4 flex items-center justify-between text-xs text-text-secondary">
+                    <span>{formatDateShort(netWorthTrend[0].date)}</span>
+                    <span>{formatDateShort(netWorthTrend[netWorthTrend.length - 1].date)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-6 rounded-xl bg-surface-muted px-5 py-8">
+                  <Sparkline
+                    values={[2, 3, 3.5, 4, 4.2, 4.4, 4.8]}
+                    width={760}
+                    height={88}
+                    color="var(--color-accent)"
+                    dashed
+                  />
+                  <p className="mt-6 text-sm text-text-secondary">
+                    Track your net worth over time — check back after a week of use.
                   </p>
                 </div>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-text-secondary">
-                Forecast spend is {formatCurrency(predictedEndOfMonthSpend)}.
-                {' '}
-                {forecastGap > 0 ? `${formatCurrency(forecastGap)} more than spent so far.` : 'You are already near your projected pace.'}
-              </p>
+              )}
             </Card>
           </div>
         </motion.div>
 
-        <motion.div variants={item} className="col-span-12 xl:col-span-5">
-          <Card className="rounded-[24px] p-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-text-primary">Spending Mix</h2>
-              <span className="text-[11px] text-text-secondary">Top categories</span>
+        <motion.div variants={item} className="col-span-12 xl:col-span-4">
+          <Card className="rounded-xl p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-text-secondary">Focus Areas</p>
+                <h2 className="mt-1 text-lg font-semibold text-text-primary">What deserves attention</h2>
+              </div>
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-info-subtle text-info">
+                <Target size={18} />
+              </span>
             </div>
 
-            {donutData.length === 0 ? (
-              <div className="flex h-[250px] items-center justify-center text-center">
-                <p className="max-w-[220px] text-xs leading-5 text-text-secondary">No expense activity this month yet, so category pressure is still blank.</p>
-              </div>
-            ) : (
-              <div className="mt-2 grid h-[250px] grid-cols-[140px_1fr] items-center gap-3">
-                <div className="h-[160px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={donutData} dataKey="total" nameKey="category_name" innerRadius={36} outerRadius={62} paddingAngle={2}>
-                        {donutData.map((slice) => (
-                          <Cell key={slice.category_name} fill={slice.fill} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                    </PieChart>
-                  </ResponsiveContainer>
+            <div className="mt-5 space-y-3">
+              {focusAreas.map((focus) => (
+                <div
+                  key={focus.title}
+                  className="rounded-xl border-l-[3px] px-4 py-3"
+                  style={focusToneStyles(focus.tone)}
+                >
+                  <p className="text-[13px] font-medium text-text-primary">{focus.title}</p>
+                  <p className="mt-1 text-[12px] leading-5 text-text-secondary">{focus.description}</p>
                 </div>
+              ))}
+            </div>
 
-                <div className="space-y-2">
-                  {donutData.map((entry) => {
-                    const pct = currentSummary.expense > 0 ? (entry.total / currentSummary.expense) * 100 : 0;
-                    return (
-                      <div key={entry.category_name} className="rounded-2xl border border-white/55 bg-white/55 px-3 py-2.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex min-w-0 items-center gap-2 text-sm text-text-primary">
-                            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.fill }} />
-                            <span className="truncate">{entry.category_name}</span>
-                          </span>
-                          <span className="text-xs font-semibold text-text-secondary numeric-text">{pct.toFixed(0)}%</span>
-                        </div>
-                        <p className="mt-1 text-xs text-text-secondary numeric-text">{formatCurrency(entry.total)}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => setActivePage('insights')}
+              className="mt-5 text-sm font-medium text-accent transition-colors hover:text-accent-hover"
+            >
+              See full insights →
+            </button>
           </Card>
         </motion.div>
       </div>
     </motion.div>
   );
+}
+
+function sumPositiveBalances(accounts: Array<{ balance: number }>): number {
+  return accounts.filter((account) => account.balance > 0).reduce((total, account) => total + account.balance, 0);
+}
+
+function getRunwayBadge(runway: number | null): { label: string; className: string } {
+  if (runway == null) {
+    return { label: 'Building history', className: 'bg-info-subtle text-info' };
+  }
+
+  if (runway >= 3) {
+    return { label: 'Healthy buffer', className: 'bg-income-subtle text-income' };
+  }
+
+  if (runway >= 1) {
+    return { label: 'Watch liquidity', className: 'bg-warning-subtle text-warning' };
+  }
+
+  return { label: 'Urgent buffer gap', className: 'bg-expense-subtle text-expense' };
+}
+
+function buildFocusAreas({
+  savingsRate,
+  cashRunway,
+  concentrationShare,
+  concentrationCategory,
+  transactionCount,
+  hasIncome,
+}: {
+  savingsRate: number;
+  cashRunway: number | null;
+  concentrationShare: number;
+  concentrationCategory: string | null;
+  transactionCount: number;
+  hasIncome: boolean;
+}): Array<{ title: string; description: string; tone: FocusTone }> {
+  const items: Array<{ title: string; description: string; tone: FocusTone }> = [];
+
+  if (!hasIncome) {
+    items.push({
+      title: 'No income recorded',
+      description: 'This month has expenses but no income yet, so cash-flow readings are incomplete.',
+      tone: 'critical',
+    });
+  }
+
+  if (cashRunway != null) {
+    if (cashRunway < 1) {
+      items.push({
+        title: 'Cash runway is short',
+        description: `Current positive balances cover about ${cashRunway.toFixed(1)} months of recent spending.`,
+        tone: 'critical',
+      });
+    } else if (cashRunway < 3) {
+      items.push({
+        title: 'Liquidity needs attention',
+        description: `You have roughly ${cashRunway.toFixed(1)} months of expenses covered right now.`,
+        tone: 'warn',
+      });
+    } else {
+      items.push({
+        title: 'Liquidity looks healthy',
+        description: `You currently have about ${cashRunway.toFixed(1)} months of expense coverage.`,
+        tone: 'ok',
+      });
+    }
+  }
+
+  if (concentrationShare > 50 && concentrationCategory) {
+    items.push({
+      title: 'Spending is concentrated',
+      description: `${concentrationCategory} accounts for ${concentrationShare.toFixed(0)}% of expenses this month.`,
+      tone: 'critical',
+    });
+  } else if (concentrationShare >= 40 && concentrationCategory) {
+    items.push({
+      title: 'One category is dominating',
+      description: `${concentrationCategory} is taking ${concentrationShare.toFixed(0)}% of expenses this month.`,
+      tone: 'warn',
+    });
+  }
+
+  if (savingsRate >= 35) {
+    items.push({
+      title: 'Savings pace is strong',
+      description: `You are keeping ${savingsRate.toFixed(1)}% of income after expenses this month.`,
+      tone: 'ok',
+    });
+  } else if (hasIncome && savingsRate < 10) {
+    items.push({
+      title: 'Savings rate is compressed',
+      description: `Only ${savingsRate.toFixed(1)}% of income remains after expenses this month.`,
+      tone: 'warn',
+    });
+  }
+
+  if (transactionCount < 5) {
+    items.push({
+      title: 'Data is still forming',
+      description: 'A few more transactions will make health signals and trend reads more reliable.',
+      tone: 'info',
+    });
+  }
+
+  if (items.length === 0) {
+    items.push({
+      title: 'Patterns look steady',
+      description: 'Your current data does not show an urgent risk signal this month.',
+      tone: 'ok',
+    });
+  }
+
+  const severity: Record<FocusTone, number> = {
+    critical: 0,
+    warn: 1,
+    info: 2,
+    ok: 3,
+  };
+
+  return items.sort((left, right) => severity[left.tone] - severity[right.tone]);
 }
