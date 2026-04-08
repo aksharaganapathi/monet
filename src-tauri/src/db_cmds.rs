@@ -83,7 +83,10 @@ fn select_query(state: &State<AppState>, query: &str, bind_values: Vec<Value>) -
             let value = match row.get_ref(i).map_err(|e| e.to_string())? {
                 ValueRef::Null => Value::Null,
                 ValueRef::Integer(i) => Value::Number(i.into()),
-                ValueRef::Real(f) => Value::Number(serde_json::Number::from_f64(f).unwrap()),
+                ValueRef::Real(f) => Value::Number(
+                    serde_json::Number::from_f64(f)
+                        .unwrap_or_else(|| serde_json::Number::from(0)),
+                ),
                 ValueRef::Text(t) => Value::String(String::from_utf8(t.to_vec()).map_err(|e| e.to_string())?),
                 ValueRef::Blob(b) => {
                     use base64::Engine;
@@ -228,10 +231,11 @@ fn fallback_month_story(income: f64, expense: f64, categories: &[(String, f64)])
 }
 
 #[command]
-pub async fn summarize_month_story(state: State<'_, AppState>, year: i32, month: u32) -> Result<String, String> {
+pub async fn summarize_month_story(state: State<'_, AppState>, app: AppHandle, year: i32, month: u32) -> Result<String, String> {
     if month == 0 || month > 12 {
         return Err("Invalid month".to_string());
     }
+
 
     let period_key = format!("{:04}-{:02}", year, month);
     let start_date = format!("{}-01", period_key);
@@ -312,6 +316,13 @@ pub async fn summarize_month_story(state: State<'_, AppState>, year: i32, month:
 
         (income, expense, categories, total_tx_count, spend_tx_count)
     };
+
+    // Groq AI summaries require explicit user opt-in (H-4).
+    // Check this before any later AI-specific handling so opted-out users
+    // never receive cached or freshly generated AI output.
+    if !crate::get_ai_enabled(&app) {
+        return Ok(fallback_month_story(income, expense, &categories));
+    }
 
     let fallback = fallback_month_story(income, expense, &categories);
     let api_key = match env::var("GROQ_API_KEY") {
