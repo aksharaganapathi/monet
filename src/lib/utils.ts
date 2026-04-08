@@ -36,3 +36,20 @@ export function getCurrentMonth(): { year: number; month: number } {
 export function getMonthName(month: number): string {
   return new Date(2024, month - 1).toLocaleDateString('en-US', { month: 'long' });
 }
+
+export function toMonthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+export function getMonthDateRange(year: number, month: number): { start: string; end: string } {
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0);
+  return {
+    start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`,
+    end: `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`,
+  };
+}
+
+export function getMonthLabel(dateStr: string): string {
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}

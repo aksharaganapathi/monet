@@ -2,6 +2,7 @@ import React from 'react';
 import { Sidebar } from './Sidebar';
 import { TransactionFormModal } from '../features/transactions/TransactionFormModal';
 import { CommandPalette } from './CommandPalette';
+import { TopBar } from './TopBar';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -16,7 +17,8 @@ export function Layout({ children }: LayoutProps) {
       />
       <Sidebar />
       <main className="relative z-10 flex-1 overflow-hidden" role="main">
-        <div className="mx-auto h-full max-w-[1420px] px-5 py-5">
+        <div className="mx-auto flex h-full max-w-[1420px] flex-col px-5 py-5">
+          <TopBar />
           {children}
         </div>
       </main>
