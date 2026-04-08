@@ -43,4 +43,14 @@ export const authRepository = {
   async resetBiometricRegistration(): Promise<void> {
     return invoke('reset_biometric_registration');
   },
+
+  /** Lock the database and drop the open connection (M-5 idle-lock). */
+  async lockDatabase(): Promise<void> {
+    return invoke('lock_database');
+  },
+
+  /** Opt in or out of Groq AI summaries (H-4). */
+  async setAiEnabled(enabled: boolean): Promise<SetupStatus> {
+    return invoke<SetupStatus>('set_ai_enabled', { enabled });
+  },
 };

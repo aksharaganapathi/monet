@@ -64,3 +64,16 @@ pub fn reset_biometric_registration(app: AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Drop the open database connection, effectively locking the vault (M-5).
+#[tauri::command]
+pub fn lock_database(state: State<AppState>) -> Result<(), String> {
+    crate::lock_database_internal(&state);
+    Ok(())
+}
+
+/// Opt the user in or out of the Groq AI summary feature (H-4).
+#[tauri::command]
+pub fn set_ai_enabled(app: AppHandle, enabled: bool) -> Result<SetupStatus, String> {
+    crate::set_ai_enabled_internal(&app, enabled)
+}

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { startTransition } from 'react';
 import { authenticate, checkStatus } from '@tauri-apps/plugin-biometric';
 import { invoke } from '@tauri-apps/api/core';
@@ -21,6 +21,9 @@ import { LockKeyhole, ShieldCheck, Smile, UserRound } from 'lucide-react';
 import monetLogo from './monet_logo.svg';
 
 type AuthView = 'booting' | 'onboarding' | 'locked' | 'unlocked';
+
+/** Lock the vault after this many milliseconds of inactivity (M-5). */
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
 function toBase64Url(data: Uint8Array): string {
   const base64 = btoa(String.fromCharCode(...data));
@@ -397,6 +400,44 @@ function App() {
     return false;
   }, [isTauriRuntime, isWindowsRuntime]);
 
+  // --- Idle-lock timer (M-5) ---
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const authViewRef = useRef(authView);
+  authViewRef.current = authView;
+
+  const lockVault = useCallback(async () => {
+    if (!isTauriRuntime || authViewRef.current !== 'unlocked') return;
+    try {
+      await authRepository.lockDatabase();
+    } catch {
+      // best-effort; proceed to UI lock regardless
+    }
+    setAuthView('locked');
+    setAuthError('');
+    setUsePasswordUnlock(true);
+  }, [isTauriRuntime]);
+
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(lockVault, IDLE_TIMEOUT_MS);
+  }, [lockVault]);
+
+  useEffect(() => {
+    if (!isTauriRuntime || authView !== 'unlocked') {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      return;
+    }
+
+    const events = ['mousemove', 'keydown', 'pointerdown', 'wheel', 'touchstart'] as const;
+    events.forEach((e) => window.addEventListener(e, resetIdleTimer, { passive: true }));
+    resetIdleTimer(); // start the timer immediately on unlock
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetIdleTimer));
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    };
+  }, [isTauriRuntime, authView, resetIdleTimer]);
+
   useEffect(() => {
     const boot = async () => {
       if (!isTauriRuntime) {
@@ -485,8 +526,8 @@ function App() {
       return;
     }
 
-    if (payload.password.length < 4) {
-      setAuthError('Please choose a password with at least 4 characters.');
+    if (payload.password.length < 12) {
+      setAuthError('Please choose a password with at least 12 characters.');
       return;
     }
 

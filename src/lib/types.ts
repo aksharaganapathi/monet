@@ -116,6 +116,8 @@ export interface SetupStatus {
   userName: string | null;
   biometricEnabled: boolean;
   canUseBiometricUnlock: boolean;
+  /** Whether the user has opted into the Groq AI summary feature (H-4). */
+  aiEnabled: boolean;
 }
 
 export interface MonthSelection {
