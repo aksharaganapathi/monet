@@ -1,17 +1,13 @@
 import { useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { AlertTriangle, ArrowUpRight, Landmark, PiggyBank, Scale, Wallet } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Flag, Repeat, TrendingUp } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Card } from '../../components/ui/Card';
-import {
-  calculateCashRunway,
-  calculateMonthlySavingsRate,
-  calculateTrailingAverageMonthlySpend,
-  summarizeCashFlow,
-} from '../../lib/finance';
+import { detectRecurring, forecastMonthEnd } from '../../lib/finance';
+import { formatCurrency, formatDate, getMonthName } from '../../lib/utils';
 import { useAccountStore } from '../../store/accountStore';
 import { useTransactionStore } from '../../store/transactionStore';
-import { formatCurrency, formatDate, getCurrentMonth, getMonthName } from '../../lib/utils';
+import { useUIStore } from '../../store/uiStore';
 
 const container = {
   hidden: { opacity: 0 },
@@ -31,204 +27,206 @@ function monthDateFromOffset(year: number, month: number, offset: number): Date 
   return new Date(year, month - 1 + offset, 1);
 }
 
+function monthlyEquivalent(amount: number, frequency: 'daily' | 'weekly' | 'monthly' | 'yearly') {
+  if (frequency === 'daily') return Math.abs(amount) * 30;
+  if (frequency === 'weekly') return Math.abs(amount) * 4.33;
+  if (frequency === 'yearly') return Math.abs(amount) / 12;
+  return Math.abs(amount);
+}
+
+function getCadenceTone(spend: number, dailyAverage: number): string {
+  if (spend === 0) return '#ffffff';
+  if (spend > dailyAverage * 2) return 'var(--color-expense)';
+  if (spend > dailyAverage) return 'var(--color-accent)';
+  return 'var(--color-gold-light)';
+}
+
 export function InsightsPage() {
-  const { accounts, totalBalance, hasLoaded: accountsLoaded, fetchAccounts } = useAccountStore();
-  const { transactions, hasLoaded: transactionsLoaded, fetchTransactions } = useTransactionStore();
+  const { hasLoaded: accountsLoaded, fetchAccounts } = useAccountStore();
+  const {
+    transactions,
+    hasLoaded: transactionsLoaded,
+    fetchTransactions,
+    setTransactionFlagged,
+  } = useTransactionStore();
+  const { selectedMonth, applyTransactionCategoryMonthFilter } = useUIStore();
 
   useEffect(() => {
-    if (!accountsLoaded) fetchAccounts();
-    if (!transactionsLoaded) fetchTransactions();
-  }, [accountsLoaded, transactionsLoaded, fetchAccounts, fetchTransactions]);
+    if (!accountsLoaded) void fetchAccounts();
+    if (!transactionsLoaded) void fetchTransactions();
+  }, [accountsLoaded, fetchAccounts, fetchTransactions, transactionsLoaded]);
 
-  const currentMonth = getCurrentMonth();
+  const currentMonth = selectedMonth;
+  const currentKey = monthKey(currentMonth.year, currentMonth.month);
+  const previousDate = monthDateFromOffset(currentMonth.year, currentMonth.month, -1);
+  const previousKey = monthKey(previousDate.getFullYear(), previousDate.getMonth() + 1);
 
-  const monthlyTrend = useMemo(() => {
-    return Array.from({ length: 6 }, (_, index) => {
-      const date = monthDateFromOffset(currentMonth.year, currentMonth.month, index - 5);
-      const key = monthKey(date.getFullYear(), date.getMonth() + 1);
-      const summary = summarizeCashFlow(transactions.filter((transaction) => transaction.date.startsWith(key)));
+  const monthlyTrend = useMemo(
+    () =>
+      Array.from({ length: 6 }, (_, index) => {
+        const date = monthDateFromOffset(currentMonth.year, currentMonth.month, index - 5);
+        const key = monthKey(date.getFullYear(), date.getMonth() + 1);
+        const monthTransactions = transactions.filter((transaction) => transaction.date.startsWith(key));
+        const income = monthTransactions
+          .filter((transaction) => transaction.amount > 0)
+          .reduce((sum, transaction) => sum + transaction.amount, 0);
+        const expense = monthTransactions
+          .filter((transaction) => transaction.amount < 0)
+          .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0);
 
-      return {
-        key,
-        label: getMonthName(date.getMonth() + 1).slice(0, 3),
-        income: Number(summary.income.toFixed(2)),
-        expense: Number(summary.expenses.toFixed(2)),
-        net: Number(summary.netFlow.toFixed(2)),
-      };
+        return {
+          key,
+          label: getMonthName(date.getMonth() + 1).slice(0, 3),
+          income,
+          expense,
+          net: income - expense,
+        };
+      }),
+    [currentMonth.month, currentMonth.year, transactions],
+  );
+
+  const recurringPatterns = useMemo(() => detectRecurring(transactions), [transactions]);
+
+  const recurringExpensePatterns = useMemo(
+    () => recurringPatterns.filter((pattern) => pattern.amount < 0),
+    [recurringPatterns],
+  );
+
+  const recurringExpenseTotal = useMemo(
+    () =>
+      recurringExpensePatterns.reduce(
+        (sum, pattern) => sum + monthlyEquivalent(pattern.amount, pattern.frequency),
+        0,
+      ),
+    [recurringExpensePatterns],
+  );
+
+  const forecast = useMemo(
+    () =>
+      forecastMonthEnd(
+        transactions,
+        recurringPatterns,
+        new Date(currentMonth.year, currentMonth.month - 1, Math.min(new Date().getDate(), 28)),
+      ),
+    [currentMonth.month, currentMonth.year, recurringPatterns, transactions],
+  );
+
+  const currentMonthTransactions = useMemo(
+    () => transactions.filter((transaction) => transaction.date.startsWith(currentKey)),
+    [currentKey, transactions],
+  );
+
+  const currentMonthExpenses = useMemo(
+    () => currentMonthTransactions.filter((transaction) => transaction.amount < 0),
+    [currentMonthTransactions],
+  );
+
+  const previousMonthExpenses = useMemo(
+    () =>
+      transactions.filter(
+        (transaction) => transaction.date.startsWith(previousKey) && transaction.amount < 0,
+      ),
+    [previousKey, transactions],
+  );
+
+  const dailyCadence = useMemo(() => {
+    const map = new Map<number, { spend: number; count: number }>();
+
+    currentMonthExpenses.forEach((transaction) => {
+      const day = Number.parseInt(transaction.date.slice(8, 10), 10);
+      const entry = map.get(day) ?? { spend: 0, count: 0 };
+      entry.spend += Math.abs(transaction.amount);
+      entry.count += 1;
+      map.set(day, entry);
     });
-  }, [currentMonth.month, currentMonth.year, transactions]);
 
-  const trailingAverageExpense = useMemo(() => {
-    return calculateTrailingAverageMonthlySpend(
-      transactions,
-      3,
-      new Date(currentMonth.year, currentMonth.month - 1, 1),
-    ).average;
-  }, [currentMonth.month, currentMonth.year, transactions]);
+    return map;
+  }, [currentMonthExpenses]);
 
-  const liquidityMonths = calculateCashRunway(totalBalance, trailingAverageExpense);
-  const currentMonthSummary = monthlyTrend[monthlyTrend.length - 1] ?? { income: 0, expense: 0, net: 0 };
-  const savingsRate = calculateMonthlySavingsRate(currentMonthSummary.income, currentMonthSummary.expense);
+  const dailyAverage = useMemo(() => {
+    const total = currentMonthExpenses.reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0);
+    const daysInMonth = Math.max(new Date(currentMonth.year, currentMonth.month, 0).getDate(), 1);
+    return total / daysInMonth;
+  }, [currentMonth.month, currentMonth.year, currentMonthExpenses]);
 
-  const accountAllocation = useMemo(() => {
-    const positiveAccounts = accounts
-      .filter((account) => account.balance > 0)
-      .sort((a, b) => b.balance - a.balance);
+  const largestRecentExpenses = useMemo(
+    () => [...currentMonthExpenses].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 5),
+    [currentMonthExpenses],
+  );
 
-    const positiveTotal = positiveAccounts.reduce((sum, account) => sum + account.balance, 0);
+  const largestExpenseAmount = useMemo(
+    () => Math.max(...largestRecentExpenses.map((transaction) => Math.abs(transaction.amount)), 1),
+    [largestRecentExpenses],
+  );
 
-    return positiveAccounts.map((account, index) => ({
-      ...account,
-      share: positiveTotal > 0 ? (account.balance / positiveTotal) * 100 : 0,
-      color: index === 0 ? '#A88B4A' : index === 1 ? '#2E6F95' : '#7F8EA3',
-    }));
-  }, [accounts]);
+  const categoryBreakdown = useMemo(() => {
+    const current = new Map<string, number>();
+    const previous = new Map<string, number>();
 
-  const largestAccountShare = accountAllocation[0]?.share ?? 0;
+    currentMonthExpenses.forEach((transaction) => {
+      current.set(
+        transaction.category_name,
+        (current.get(transaction.category_name) ?? 0) + Math.abs(transaction.amount),
+      );
+    });
 
-  const recentExpenses = useMemo(() => {
-    return transactions
-      .filter((transaction) => transaction.amount < 0)
-      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
-      .slice(0, 5);
-  }, [transactions]);
+    previousMonthExpenses.forEach((transaction) => {
+      previous.set(
+        transaction.category_name,
+        (previous.get(transaction.category_name) ?? 0) + Math.abs(transaction.amount),
+      );
+    });
 
-  const focusAreas = useMemo(() => {
-    const items: { title: string; body: string; tone: 'good' | 'warn' }[] = [];
+    const totalExpenses = [...current.values()].reduce((sum, value) => sum + value, 0);
 
-    if (liquidityMonths !== null) {
-      if (liquidityMonths < 2) {
-        items.push({
-          title: 'Liquidity is thin',
-          body: `Current balances cover about ${liquidityMonths.toFixed(1)} months of recent spending. Building more cash buffer would reduce pressure.`,
-          tone: 'warn',
-        });
-      } else if (liquidityMonths >= 4) {
-        items.push({
-          title: 'Liquidity looks healthy',
-          body: `You currently hold about ${liquidityMonths.toFixed(1)} months of recent spending across your accounts.`,
-          tone: 'good',
-        });
-      }
-    }
+    return [...current.entries()]
+      .map(([category, spent]) => {
+        const previousSpent = previous.get(category) ?? null;
+        return {
+          category,
+          spent,
+          share: totalExpenses > 0 ? (spent / totalExpenses) * 100 : 0,
+          delta: previousSpent == null ? null : spent - previousSpent,
+        };
+      })
+      .sort((left, right) => right.spent - left.spent);
+  }, [currentMonthExpenses, previousMonthExpenses]);
 
-    if (largestAccountShare >= 65) {
-      items.push({
-        title: 'Balances are concentrated',
-        body: `${largestAccountShare.toFixed(0)}% of positive balances sit in one account. That may be fine, but it is worth checking whether your cash is organized intentionally.`,
-        tone: 'warn',
-      });
-    }
-
-    if (currentMonthSummary.income > 0 && savingsRate < 15) {
-      items.push({
-        title: 'Savings rate is under pressure',
-        body: `This month is currently tracking at a ${savingsRate.toFixed(1)}% savings rate, so spending is absorbing most incoming cash flow.`,
-        tone: 'warn',
-      });
-    } else if (currentMonthSummary.income > 0 && savingsRate >= 20) {
-      items.push({
-        title: 'Savings pace is strong',
-        body: `This month is currently keeping ${savingsRate.toFixed(1)}% of income after expenses, which is a strong savings posture.`,
-        tone: 'good',
-      });
-    }
-
-    if (items.length === 0) {
-      items.push({
-        title: 'Pattern still forming',
-        body: 'Once you have a bit more transaction history, Monet can call out stronger financial trends here without overfitting early data.',
-        tone: 'good',
-      });
-    }
-
-    return items.slice(0, 3);
-  }, [currentMonthSummary.income, liquidityMonths, largestAccountShare, savingsRate]);
+  const daysInMonth = new Date(currentMonth.year, currentMonth.month, 0).getDate();
 
   return (
-    <motion.div variants={container} initial="hidden" animate="show" className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1 pb-4">
-      <motion.div variants={item} className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+    <motion.div
+      variants={container}
+      initial="hidden"
+      animate="show"
+      className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto pb-4 pr-1"
+    >
+      <motion.div variants={item}>
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-secondary">Insights</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">Financial posture</h1>
-          <p className="mt-1 max-w-3xl text-sm text-text-secondary">A deeper view of liquidity, balance concentration, spending cadence, and the transactions shaping your current position.</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-secondary">
+            Insights
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+            Financial posture
+          </h1>
+          <p className="mt-1 text-sm text-text-secondary">
+            A deeper view of cadence, recurring commitments, and category changes shaping
+            this month.
+          </p>
         </div>
-        <p className="text-xs text-text-secondary">Built to complement the dashboard, not crowd it.</p>
       </motion.div>
 
       <div className="grid grid-cols-12 gap-4">
-        <motion.div variants={item} className="col-span-12 md:col-span-6 xl:col-span-3">
-          <Card className="h-full rounded-[24px] p-4">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-accent-subtle text-accent">
-                <Wallet size={18} />
-              </span>
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Liquidity</p>
-                <p className="mt-1 text-2xl font-semibold numeric-display text-text-primary">
-                  {liquidityMonths === null ? 'N/A' : `${liquidityMonths.toFixed(1)} mo`}
-                </p>
-              </div>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-text-secondary">Based on your trailing 3-month average spend.</p>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={item} className="col-span-12 md:col-span-6 xl:col-span-3">
-          <Card className="h-full rounded-[24px] p-4">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-income-subtle text-income">
-                <PiggyBank size={18} />
-              </span>
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Savings Rate</p>
-                <p className={`mt-1 text-2xl font-semibold numeric-display ${savingsRate >= 0 ? 'text-income' : 'text-expense'}`}>
-                  {savingsRate.toFixed(1)}%
-                </p>
-              </div>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-text-secondary">Current month net cash flow divided by current month income.</p>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={item} className="col-span-12 md:col-span-6 xl:col-span-3">
-          <Card className="h-full rounded-[24px] p-4">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-warning-subtle text-warning">
-                <Scale size={18} />
-              </span>
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Largest Account</p>
-                <p className="mt-1 text-2xl font-semibold numeric-display text-text-primary">{largestAccountShare.toFixed(0)}%</p>
-              </div>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-text-secondary">Share of positive balances held in your biggest account.</p>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={item} className="col-span-12 md:col-span-6 xl:col-span-3">
-          <Card className="h-full rounded-[24px] p-4">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-accent-subtle text-accent">
-                <Landmark size={18} />
-              </span>
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Average Spend</p>
-                <p className="mt-1 text-2xl font-semibold numeric-display text-text-primary">{formatCurrency(trailingAverageExpense)}</p>
-              </div>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-text-secondary">Trailing 3-month average expense run rate.</p>
-          </Card>
-        </motion.div>
-      </div>
-
-      <div className="grid grid-cols-12 items-start gap-4">
         <motion.div variants={item} className="col-span-12 xl:col-span-8">
-          <Card className="rounded-[24px] p-5">
+          <Card className="rounded-xl p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-text-primary">Income vs spending trend</h2>
-                <p className="text-sm text-text-secondary">The last six months, split into money in and money out.</p>
+                <h2 className="text-lg font-semibold text-text-primary">
+                  Income vs spending trend
+                </h2>
+                <p className="text-sm text-text-secondary">
+                  The last six months, split into money in and money out.
+                </p>
               </div>
               <span className="text-xs text-text-secondary">6 months</span>
             </div>
@@ -238,13 +236,24 @@ export function InsightsPage() {
                 <BarChart data={monthlyTrend} barGap={8}>
                   <CartesianGrid vertical={false} stroke="rgba(15,23,42,0.08)" />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} tickFormatter={(value) => `$${Math.round(Number(value) / 1000)}k`} />
-                  <Tooltip
-                    formatter={(value, name) => [formatCurrency(Number(value ?? 0)), name === 'income' ? 'Income' : 'Spending']}
-                    contentStyle={{ borderRadius: 12, border: '1px solid rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.94)' }}
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(value) => `$${Math.round(Number(value) / 1000)}k`}
                   />
-                  <Bar dataKey="income" fill="#10B981" radius={[8, 8, 0, 0]} />
-                  <Bar dataKey="expense" fill="#A88B4A" radius={[8, 8, 0, 0]} />
+                  <Tooltip
+                    formatter={(value, name) => [
+                      formatCurrency(Number(value ?? 0)),
+                      name === 'income' ? 'Income' : 'Spending',
+                    ]}
+                    contentStyle={{
+                      borderRadius: 12,
+                      border: '1px solid rgba(22,27,36,0.16)',
+                      backgroundColor: 'var(--color-surface-elevated)',
+                    }}
+                  />
+                  <Bar dataKey="income" fill="var(--color-income)" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="expense" fill="var(--color-accent)" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -252,130 +261,250 @@ export function InsightsPage() {
         </motion.div>
 
         <motion.div variants={item} className="col-span-12 xl:col-span-4">
-          <Card className="rounded-[24px] p-5">
-            <div className="flex items-center justify-between gap-3">
+          <Card className="rounded-xl p-5">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-warning-subtle text-warning">
+                <AlertTriangle size={18} />
+              </span>
               <div>
-                <h2 className="text-lg font-semibold text-text-primary">Focus areas</h2>
-                <p className="text-sm text-text-secondary">Signals worth attention right now.</p>
+                <h2 className="text-lg font-semibold text-text-primary">Month-end forecast</h2>
+                <p className="text-sm text-text-secondary">
+                  Recurring spend plus variable pace, gated behind enough data.
+                </p>
               </div>
-              <AlertTriangle size={16} className="text-warning" />
             </div>
 
-            <div className="mt-4 space-y-3">
-              {focusAreas.map((focus) => (
-                <div
-                  key={focus.title}
-                  className={`rounded-2xl border px-4 py-3 ${
-                    focus.tone === 'warn'
-                      ? 'border-warning/20 bg-warning-subtle'
-                      : 'border-income/20 bg-income-subtle'
+            {forecast.active ? (
+              <div className="mt-4 space-y-3">
+                <p
+                  className={`numeric-display text-3xl font-semibold ${
+                    forecast.projectedNetFlow >= 0 ? 'text-income' : 'text-expense'
                   }`}
                 >
-                  <p className="text-sm font-semibold text-text-primary">{focus.title}</p>
-                  <p className="mt-1 text-xs leading-5 text-text-secondary">{focus.body}</p>
+                  {formatCurrency(forecast.projectedNetFlow)}
+                </p>
+                <p className="text-sm text-text-secondary">
+                  {forecast.confidenceLabel} net flow for the month.
+                </p>
+                <div className="rounded-xl bg-surface-muted p-4 text-sm text-text-secondary">
+                  <p>
+                    Confirmed recurring:{' '}
+                    <span className="numeric-display font-semibold text-text-primary">
+                      {formatCurrency(forecast.confirmedRecurring)}
+                    </span>
+                  </p>
+                  <p className="mt-2">
+                    Variable spend:{' '}
+                    <span className="numeric-display font-semibold text-text-primary">
+                      {formatCurrency(forecast.projectedVariable)}
+                    </span>
+                  </p>
+                  <p className="mt-2">
+                    Based on {forecast.transactionCount} transactions and {forecast.daysElapsed}{' '}
+                    days of data.
+                  </p>
                 </div>
-              ))}
-            </div>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={item} className="col-span-12 xl:col-span-5">
-          <Card className="rounded-[24px] p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-text-primary">Account allocation</h2>
-                <p className="text-sm text-text-secondary">Where your positive balances currently sit.</p>
-              </div>
-              <ArrowUpRight size={16} className="text-accent" />
-            </div>
-
-            {accountAllocation.length === 0 ? (
-              <div className="mt-5 rounded-2xl border border-white/55 bg-white/55 px-4 py-6 text-sm text-text-secondary">
-                Add account balances to unlock allocation analysis.
               </div>
             ) : (
-              <div className="mt-4 space-y-3">
-                {accountAllocation.map((account) => (
-                  <div key={account.id}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-text-primary">{account.name}</p>
-                        <p className="text-xs text-text-secondary">{account.type}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold numeric-display text-text-primary">{formatCurrency(account.balance)}</p>
-                        <p className="text-xs text-text-secondary">{account.share.toFixed(0)}%</p>
-                      </div>
-                    </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/6">
-                      <div className="h-full rounded-full" style={{ width: `${Math.max(account.share, 4)}%`, backgroundColor: account.color }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <p className="mt-4 text-sm text-text-secondary">
+                Forecast available after 14 days and 10+ transactions this month.
+              </p>
             )}
           </Card>
         </motion.div>
 
-        <motion.div variants={item} className="col-span-12 xl:col-span-7">
-          <Card className="rounded-[24px] p-5">
-            <div className="flex items-center justify-between gap-3">
+        <motion.div variants={item} className="col-span-12">
+          <Card className="rounded-xl p-5">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent-subtle text-accent">
+                <CalendarDays size={18} />
+              </span>
               <div>
-                <h2 className="text-lg font-semibold text-text-primary">Largest recent expenses</h2>
-                <p className="text-sm text-text-secondary">High-impact outflows across your current transaction history.</p>
+                <h2 className="text-lg font-semibold text-text-primary">Spending cadence</h2>
+                <p className="text-sm text-text-secondary">
+                  Your heaviest spending days this month.
+                </p>
               </div>
-              <span className="text-xs text-text-secondary">Top 5</span>
             </div>
 
-            {recentExpenses.length === 0 ? (
-              <div className="mt-5 rounded-2xl border border-white/55 bg-white/55 px-4 py-6 text-sm text-text-secondary">
-                Expense activity will appear here once transactions are added.
+            <div className="mt-5 grid grid-cols-7 gap-2 md:grid-cols-14 xl:grid-cols-31">
+              {Array.from({ length: daysInMonth }, (_, index) => index + 1).map((day) => {
+                const entry = dailyCadence.get(day) ?? { spend: 0, count: 0 };
+                const dateLabel = `${currentKey}-${String(day).padStart(2, '0')}`;
+                return (
+                  <div
+                    key={day}
+                    title={`${formatDate(dateLabel)} • ${formatCurrency(entry.spend)} • ${entry.count} transaction${entry.count === 1 ? '' : 's'}`}
+                    className="flex aspect-square items-center justify-center rounded-md border border-border text-[11px] text-text-secondary"
+                    style={{ backgroundColor: getCadenceTone(entry.spend, dailyAverage) }}
+                  >
+                    {day}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={item} className="col-span-12 xl:col-span-6">
+          <Card className="rounded-xl p-5">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-info-subtle text-info">
+                <Repeat size={18} />
+              </span>
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary">
+                  Recurring commitments
+                </h2>
+                <p className="text-sm text-text-secondary">
+                  Patterns Monet detected from repeated notes, amounts, and intervals.
+                </p>
               </div>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {recentExpenses.map((transaction) => (
-                  <div key={transaction.id} className="rounded-2xl border border-white/55 bg-white/55 px-4 py-3">
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {recurringExpensePatterns.length === 0 ? (
+                <p className="text-sm text-text-secondary">
+                  No recurring commitments detected yet.
+                </p>
+              ) : (
+                recurringExpensePatterns.map((pattern) => (
+                  <div
+                    key={`${pattern.note}-${pattern.last_date}`}
+                    className="rounded-xl bg-surface-muted px-4 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-text-primary">{pattern.note}</p>
+                      <p className="numeric-display text-sm font-semibold text-expense">
+                        {formatCurrency(Math.abs(pattern.amount))}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      {pattern.frequency} • next expected {formatDate(pattern.next_expected_date)}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <p className="mt-4 text-sm text-text-secondary">
+              ~{formatCurrency(recurringExpenseTotal)}/month in detected recurring expenses
+            </p>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={item} className="col-span-12 xl:col-span-6">
+          <Card className="rounded-xl p-5">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent-subtle text-accent">
+                <TrendingUp size={18} />
+              </span>
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary">
+                  Largest recent expenses
+                </h2>
+                <p className="text-sm text-text-secondary">
+                  High-impact outflows with context and review controls.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {largestRecentExpenses.length === 0 ? (
+                <p className="text-sm text-text-secondary">No expense activity this month yet.</p>
+              ) : (
+                largestRecentExpenses.map((transaction) => (
+                  <div key={transaction.id} className="rounded-xl bg-surface-muted px-4 py-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-text-primary">
                           {transaction.note?.trim() || transaction.category_name}
                         </p>
                         <p className="mt-1 text-xs text-text-secondary">
-                          {transaction.account_name} • {transaction.category_name} • {formatDate(transaction.date)}
+                          {transaction.account_name} • {transaction.category_name} •{' '}
+                          {formatDate(transaction.date)}
                         </p>
                       </div>
-                      <p className="text-sm font-semibold numeric-display text-expense">
-                        {formatCurrency(transaction.amount)}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="numeric-display text-sm font-semibold text-expense">
+                          {formatCurrency(Math.abs(transaction.amount))}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void setTransactionFlagged(transaction.id, !transaction.flagged)
+                          }
+                          className={`rounded-lg p-2 ${
+                            transaction.flagged
+                              ? 'bg-warning-subtle text-warning'
+                              : 'text-text-tertiary hover:bg-warning-subtle hover:text-warning'
+                          }`}
+                        >
+                          <Flag size={15} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-3 h-2 rounded-full bg-white">
+                      <div
+                        className="h-full rounded-full bg-accent"
+                        style={{
+                          width: `${(Math.abs(transaction.amount) / largestExpenseAmount) * 100}%`,
+                        }}
+                      />
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </Card>
         </motion.div>
 
         <motion.div variants={item} className="col-span-12">
-          <Card className="rounded-[24px] p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-text-primary">Monthly net flow snapshot</h2>
-                <p className="text-sm text-text-secondary">A quick comparison of what each recent month kept after spending.</p>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-              {monthlyTrend.map((month) => (
-                <div key={month.key} className="rounded-2xl border border-white/55 bg-white/55 px-4 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-text-secondary">{month.label}</p>
-                  <p className={`mt-3 text-xl font-semibold numeric-display ${month.net >= 0 ? 'text-income' : 'text-expense'}`}>
-                    {formatCurrency(month.net)}
-                  </p>
-                  <p className="mt-2 text-xs leading-5 text-text-secondary">
-                    Income {formatCurrency(month.income)} • Spend {formatCurrency(month.expense)}
-                  </p>
-                </div>
-              ))}
+          <Card className="rounded-xl p-5">
+            <h2 className="text-lg font-semibold text-text-primary">Category breakdown</h2>
+            <p className="mt-1 text-sm text-text-secondary">
+              Click a row to open Transactions filtered to that category for the current
+              month.
+            </p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border-subtle text-left text-text-secondary">
+                    <th className="pb-3 font-medium">Category</th>
+                    <th className="pb-3 font-medium">Spent</th>
+                    <th className="pb-3 font-medium">% of expenses</th>
+                    <th className="pb-3 font-medium">vs. last month</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryBreakdown.map((row) => (
+                    <tr
+                      key={row.category}
+                      className="cursor-pointer border-b border-border-subtle transition-colors hover:bg-surface-muted"
+                      onClick={() =>
+                        applyTransactionCategoryMonthFilter(row.category, selectedMonth)
+                      }
+                    >
+                      <td className="py-3 font-medium text-text-primary">{row.category}</td>
+                      <td className="numeric-display py-3">{formatCurrency(row.spent)}</td>
+                      <td className="py-3">{row.share.toFixed(1)}%</td>
+                      <td
+                        className={`py-3 ${
+                          row.delta == null
+                            ? 'text-text-tertiary'
+                            : row.delta >= 0
+                              ? 'text-expense'
+                              : 'text-income'
+                        }`}
+                      >
+                        {row.delta == null
+                          ? 'No prior month data'
+                          : `${row.delta >= 0 ? '↑' : '↓'} ${formatCurrency(Math.abs(row.delta))}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Card>
         </motion.div>
