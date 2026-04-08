@@ -11,10 +11,10 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-text-inverse shadow-[0_8px_20px_rgba(59,130,246,0.3)] hover:bg-accent-hover hover:-translate-y-0.5 active:scale-[0.98]',
-  secondary: 'bg-white border border-border text-text-primary shadow-[0_4px_12px_rgba(15,23,42,0.06)] hover:bg-[#f8fafc] hover:-translate-y-0.5 active:scale-[0.98]',
-  ghost: 'text-text-secondary hover:text-text-primary hover:bg-black/5 active:scale-[0.98]',
-  danger: 'bg-expense text-text-inverse shadow-[0_8px_20px_rgba(244,63,94,0.3)] hover:bg-[#e11d48] hover:-translate-y-0.5 active:scale-[0.98]',
+  primary: 'border border-accent bg-accent text-text-inverse hover:bg-accent-hover hover:border-accent-hover active:scale-[0.98]',
+  secondary: 'surface-card text-text-primary hover:bg-surface-muted active:scale-[0.98]',
+  ghost: 'text-text-secondary hover:text-text-primary hover:bg-accent-subtle active:scale-[0.98]',
+  danger: 'border border-expense bg-expense text-text-inverse hover:brightness-95 active:scale-[0.98]',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -34,10 +34,9 @@ export function Button({
   return (
     <button
       className={`
-        inline-flex items-center justify-center font-semibold rounded-xl
+        inline-flex items-center justify-center font-semibold rounded-lg
         transition-all duration-200 cursor-pointer
         disabled:opacity-50 disabled:cursor-not-allowed
-        disabled:shadow-none
         ${variantClasses[variant]}
         ${sizeClasses[size]}
         ${className}

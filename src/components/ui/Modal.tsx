@@ -38,7 +38,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
       {isOpen && (
         <motion.div
           ref={overlayRef}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-surface-overlay backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-surface-overlay"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -48,7 +48,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
           }}
         >
           <motion.div
-            className={`w-full ${sizeClasses[size]} mx-4 glass-elevated rounded-2xl modal-shadow overflow-hidden border border-white/65`}
+            className={`w-full ${sizeClasses[size]} mx-4 glass-elevated overflow-hidden rounded-2xl`}
             initial={{ opacity: 0, x: 64, scale: 0.98 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: 64, scale: 0.98 }}
@@ -57,11 +57,11 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
             aria-modal="true"
             aria-label={title}
           >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle bg-white/45">
+            <div className="flex items-center justify-between border-b border-border-subtle bg-surface-muted px-6 py-4">
               <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/80 transition-colors"
+                className="rounded-lg p-1.5 text-text-tertiary transition-colors hover:bg-accent-subtle hover:text-text-primary"
                 aria-label="Close"
               >
                 <X size={18} />

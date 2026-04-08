@@ -1,6 +1,6 @@
 import React from 'react';
 
-type BadgeVariant = 'default' | 'income' | 'expense' | 'warning' | 'accent';
+type BadgeVariant = 'default' | 'income' | 'expense' | 'warning' | 'accent' | 'info';
 
 interface BadgeProps {
   children: React.ReactNode;
@@ -14,6 +14,7 @@ const variantClasses: Record<BadgeVariant, string> = {
   expense: 'bg-expense-subtle text-expense',
   warning: 'bg-warning-subtle text-warning',
   accent: 'bg-accent-light text-accent',
+  info: 'bg-info-subtle text-info',
 };
 
 export function Badge({ children, variant = 'default', className = '' }: BadgeProps) {

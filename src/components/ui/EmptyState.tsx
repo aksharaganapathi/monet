@@ -15,7 +15,7 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="relative overflow-hidden glass-elevated flex flex-col items-center justify-center rounded-2xl border border-white/65 px-6 py-16 text-center"
+      className="relative flex flex-col items-center justify-center overflow-hidden rounded-2xl glass-elevated px-6 py-16 text-center"
     >
       <img
         src={monetLogo}
@@ -23,7 +23,7 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
         aria-hidden="true"
         className="pointer-events-none absolute h-36 w-auto grayscale opacity-[0.12]"
       />
-      <div className="relative z-10 mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/70 text-text-secondary border border-white/60">
+      <div className="surface-muted relative z-10 mb-4 flex h-14 w-14 items-center justify-center rounded-xl text-text-secondary">
         {icon || <Inbox size={24} />}
       </div>
       <h3 className="relative z-10 text-lg font-semibold text-text-primary mb-1">{title}</h3>

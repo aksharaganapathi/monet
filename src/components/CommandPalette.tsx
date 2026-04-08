@@ -104,7 +104,7 @@ export function CommandPalette() {
       {isCommandPaletteOpen && (
         <motion.div
           ref={overlayRef}
-          className="fixed inset-0 z-50 flex items-start justify-center bg-surface-overlay pt-[18vh] backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-surface-overlay pt-[18vh]"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -113,13 +113,13 @@ export function CommandPalette() {
           }}
         >
           <motion.div
-            className="glass-elevated mx-4 w-full max-w-xl overflow-hidden rounded-2xl border border-white/70 modal-shadow"
+            className="glass-elevated mx-4 w-full max-w-xl overflow-hidden rounded-2xl"
             initial={{ opacity: 0, scale: 0.96, y: -10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -10 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="flex items-center gap-3 border-b border-border-subtle bg-white/50 px-5 py-4">
+            <div className="flex items-center gap-3 border-b border-border-subtle bg-surface-muted px-5 py-4">
               <DollarSign size={18} className="text-accent flex-shrink-0" />
               <input
                 ref={inputRef}
@@ -133,12 +133,12 @@ export function CommandPalette() {
                 className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none"
                 aria-label="Quick transaction entry"
               />
-              <kbd className="rounded-md border border-border-subtle bg-white/70 px-2 py-0.5 text-xs text-text-tertiary">
+              <kbd className="surface-card rounded-md px-2 py-0.5 text-xs text-text-tertiary">
                 ↵
               </kbd>
             </div>
 
-            <div className="bg-white/35 px-5 py-3 text-xs text-text-tertiary">
+            <div className="bg-surface-elevated px-5 py-3 text-xs text-text-tertiary">
               {status === 'idle' && (
                 <div className="flex items-center gap-2">
                   <Search size={12} />
