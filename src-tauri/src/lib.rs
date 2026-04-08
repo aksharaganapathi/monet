@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use base64::Engine;
@@ -28,6 +29,8 @@ const DPAPI_ENTROPY: &[u8] = b"monet-com.monet.finance-dpapi-v1";
 const MIN_PASSWORD_LEN: usize = 12;
 /// Maximum consecutive failed unlock attempts before a hard lockout (H-5).
 const MAX_FAILED_ATTEMPTS: u32 = 10;
+/// Exponent cap for the exponential back-off delay: max delay = 2^MAX_BACKOFF_POWER seconds (H-5).
+const MAX_BACKOFF_POWER: u32 = 4; // 2^4 = 16 seconds
 
 pub struct AppState {
     pub db: Mutex<Option<Connection>>,
@@ -35,7 +38,9 @@ pub struct AppState {
     pub auth_state: Mutex<Option<PasskeyAuthentication>>,
     pub reg_state: Mutex<Option<PasskeyRegistration>>,
     /// Consecutive failed password-unlock attempts (H-5 brute-force protection).
-    pub failed_auth_attempts: Mutex<u32>,
+    /// Uses an atomic so reads and increments do not need to hold a mutex across
+    /// the authentication call (avoids lock ordering issues and contention).
+    pub failed_auth_attempts: AtomicU32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -598,7 +603,7 @@ pub(crate) fn load_passkey(app: &AppHandle) -> Result<Passkey, String> {
         return serde_json::from_str(&decrypted).map_err(|e| e.to_string());
     }
 
-    let legacy_passkey: Passkey = serde_json::from_str(&raw).map_err(|e| e.to_string());
+    let legacy_passkey: Passkey = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     save_passkey(app, &legacy_passkey)?;
     Ok(legacy_passkey)
 }
@@ -690,7 +695,11 @@ pub(crate) fn unlock_with_password_internal(
     }
 
     if needs_save {
-        let _ = save_auth_config(app, &config); // best-effort; migrates again next unlock on failure
+        if let Err(e) = save_auth_config(app, &config) {
+            // Log migration failure so it can be diagnosed, but don't abort unlock —
+            // the DB connection is already open. Migration will be retried next unlock.
+            eprintln!("[monet] warn: failed to persist migrated auth config: {}", e);
+        }
     }
 
     Ok(config)
@@ -757,7 +766,9 @@ pub(crate) fn unlock_with_biometric_internal(
     }
 
     if needs_save {
-        let _ = save_auth_config(app, &config);
+        if let Err(e) = save_auth_config(app, &config) {
+            eprintln!("[monet] warn: failed to persist migrated auth config: {}", e);
+        }
     }
 
     Ok(config)
@@ -849,27 +860,26 @@ pub fn unlock_with_password_command(
     password: String,
 ) -> Result<SetupStatus, String> {
     // --- Brute-force protection (H-5) ---
-    let attempt = {
-        let lock = state.failed_auth_attempts.lock().unwrap_or_else(|e| e.into_inner());
-        *lock
-    };
+    // Atomically read and pre-increment the attempt counter.  If the counter
+    // was already at or above the limit when we read it, reject immediately.
+    let attempt = state.failed_auth_attempts.load(Ordering::SeqCst);
 
     if attempt >= MAX_FAILED_ATTEMPTS {
-        return Err(format!(
-            "E-AUTH-LOCKED: Too many failed attempts. Restart Monet to try again."
-        ));
+        return Err(
+            "E-AUTH-LOCKED: Too many failed attempts. Restart Monet to try again.".to_string(),
+        );
     }
 
-    // Exponential backoff: 0 s, 1 s, 2 s, 4 s, 8 s, 16 s (max).
+    // Exponential back-off: 0 s, 1 s, 2 s, 4 s, 8 s, 16 s (capped at MAX_BACKOFF_POWER).
     if attempt > 0 {
-        let delay_secs = 1u64 << attempt.min(4);
+        let delay_secs = 1u64 << attempt.min(MAX_BACKOFF_POWER);
         std::thread::sleep(std::time::Duration::from_secs(delay_secs));
     }
 
     match unlock_with_password_internal(state, app, &password) {
         Ok(config) => {
             // Reset counter on success.
-            *state.failed_auth_attempts.lock().unwrap_or_else(|e| e.into_inner()) = 0;
+            state.failed_auth_attempts.store(0, Ordering::SeqCst);
             Ok(SetupStatus {
                 is_configured: true,
                 user_name: Some(config.user_name),
@@ -879,7 +889,7 @@ pub fn unlock_with_password_command(
             })
         }
         Err(e) => {
-            *state.failed_auth_attempts.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+            state.failed_auth_attempts.fetch_add(1, Ordering::SeqCst);
             Err(e)
         }
     }
@@ -1072,7 +1082,7 @@ pub fn run() {
             auth: Mutex::new(Some(webauthn)),
             auth_state: Mutex::new(None),
             reg_state: Mutex::new(None),
-            failed_auth_attempts: Mutex::new(0),
+            failed_auth_attempts: AtomicU32::new(0),
         })
         .invoke_handler(tauri::generate_handler![
             auth::start_register,
