@@ -10,13 +10,13 @@ Monet is a desktop personal finance app built with Tauri, React, TypeScript, and
 
 Monet currently focuses on the core pieces of a private finance tracker:
 
-- Track checking and savings accounts
-- Record and edit transactions
-- Organize spending with categories
-- View a dashboard with net worth, cash flow, spending mix, and month-end outlook
-- Explore a dedicated insights page for deeper financial posture analysis
-- Protect access with a password-derived database key
-- Optionally unlock with Windows Hello / passkey-based biometrics
+- Track checking, savings, investment, and cash accounts
+- Record, edit, and review transactions with search and date/category filters
+- Flag transactions and surface recurring spending signals automatically
+- Organize spending with categories and monthly budgets
+- View a dashboard with net worth, cash flow, savings posture, and spending concentration
+- Explore a dedicated insights page for trend analysis, cadence, and month-end forecast signals
+- Protect access with password-derived encryption and optional Windows Hello unlock
 
 Everything is designed around local-first use. Your database lives on your machine, and the app can still function without a cloud backend.
 
@@ -25,10 +25,12 @@ Everything is designed around local-first use. Your database lives on your machi
 Security is a first-class concern in Monet.
 
 - The SQLite database is encrypted with SQLCipher.
-- The database key is derived from the user’s password instead of being stored directly in plaintext.
+- The database key is derived from the user’s password (PBKDF2, 600,000 iterations) instead of being stored directly in plaintext.
+- New and changed passwords must be at least 12 characters.
+- Unlock attempts are hardened with exponential backoff and a hard lockout after too many failed tries.
+- The vault auto-locks after 15 minutes of inactivity.
 - Biometric unlock is optional and currently geared toward the Windows desktop flow.
-- Stored biometric/passkey material is protected locally at runtime rather than committed as raw credential JSON.
-- Sensitive operations such as changing the password or enabling/disabling biometrics verify the current password before applying changes.
+- Biometric key material is protected locally using OS-level protection, and security-setting changes require password verification.
 
 If you are working on this repo, treat all locally generated app data as sensitive, even during development.
 
@@ -73,9 +75,11 @@ cargo check
 
 ## Optional AI Monthly Summary
 
-Monet includes a monthly summary widget on the dashboard. It can use Groq if credentials are available, and it falls back to a deterministic local summary when they are not.
+Monet includes a monthly summary widget on the dashboard. It is opt-in, and can use Groq when credentials are available. If AI is disabled or credentials are missing, Monet falls back to a deterministic local summary.
 
-Set these environment variables if you want the AI summary enabled:
+To use the AI path, enable it in Settings first, then provide credentials:
+
+Set these environment variables:
 
 ```bash
 set GROQ_API_KEY=your_groq_api_key
@@ -87,7 +91,8 @@ You can also store them in a local `.env` file at the project root.
 ## Notes For Developers
 
 - The current biometric passkey relying party defaults to `localhost` during development.
-- If you want a different passkey relying-party identity, configure `MONET_RP_ID` and `MONET_RP_ORIGIN` to a matching secure origin.
+- In debug builds, you can override passkey relying-party values with `MONET_RP_ID` and `MONET_RP_ORIGIN`.
+- `MONET_RP_ID` and `MONET_RP_ORIGIN` must match each other and the actual app origin for passkey registration/auth to work.
 - The displayed passkey name is generated from the Monet user name in the form `monet-<user_name>`.
 
 ## Why The App Feels This Way
