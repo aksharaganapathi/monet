@@ -29,9 +29,11 @@ fn build_passkey_name(user_name: Option<String>) -> String {
 #[command]
 pub fn start_register(
     state: State<AppState>,
-    _app: AppHandle,
+    app: AppHandle,
     user_name: Option<String>,
 ) -> Result<CreationChallengeResponse, String> {
+    crate::ensure_recent_password_verification_for_passkey_enrollment(&state, &app)?;
+
     let auth_lock = state.auth.lock().unwrap();
     let webauthn = auth_lock.as_ref().ok_or("Auth not configured")?;
     
@@ -54,6 +56,8 @@ pub fn start_register(
 
 #[command]
 pub fn finish_register(state: State<AppState>, app: AppHandle, credential: RegisterPublicKeyCredential) -> Result<(), String> {
+    crate::ensure_recent_password_verification_for_passkey_enrollment(&state, &app)?;
+
     let auth_lock = state.auth.lock().unwrap();
     let webauthn = auth_lock.as_ref().ok_or("Auth not configured")?;
     

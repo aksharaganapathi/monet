@@ -423,13 +423,6 @@ pub async fn summarize_month_story(state: State<'_, AppState>, app: AppHandle, y
     Ok(summary)
 }
 
-// ------ Settings/DB Init ------
-
-#[command]
-pub fn initialize_db(state: State<AppState>, app: AppHandle) -> Result<(), String> {
-    crate::open_legacy_db(&state, &app)
-}
-
 // ------ Accounts ------
 
 #[command]

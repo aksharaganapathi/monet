@@ -44,16 +44,17 @@ pub fn change_password(
 
 #[tauri::command]
 pub fn set_biometric_enabled(
+    state: State<AppState>,
     app: AppHandle,
     password: String,
     enabled: bool,
 ) -> Result<SetupStatus, String> {
-    crate::set_biometric_enabled_internal(&app, password, enabled)
+    crate::set_biometric_enabled_internal(&state, &app, password, enabled)
 }
 
 #[tauri::command]
-pub fn verify_password(app: AppHandle, password: String) -> Result<(), String> {
-    crate::verify_password_internal(&app, &password)
+pub fn verify_password(state: State<AppState>, app: AppHandle, password: String) -> Result<(), String> {
+    crate::verify_password_command(&state, &app, password)
 }
 
 #[tauri::command]
@@ -74,6 +75,10 @@ pub fn lock_database(state: State<AppState>) -> Result<(), String> {
 
 /// Opt the user in or out of the Groq AI summary feature (H-4).
 #[tauri::command]
-pub fn set_ai_enabled(app: AppHandle, enabled: bool) -> Result<SetupStatus, String> {
-    crate::set_ai_enabled_internal(&app, enabled)
+pub fn set_ai_enabled(
+    state: State<AppState>,
+    app: AppHandle,
+    enabled: bool,
+) -> Result<SetupStatus, String> {
+    crate::set_ai_enabled_internal(&state, &app, enabled)
 }

@@ -1,6 +1,7 @@
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use dotenvy::dotenv;
@@ -31,6 +32,9 @@ const MIN_PASSWORD_LEN: usize = 12;
 const MAX_FAILED_ATTEMPTS: u32 = 10;
 /// Exponent cap for the exponential back-off delay: max delay = 2^MAX_BACKOFF_POWER seconds (H-5).
 const MAX_BACKOFF_POWER: u32 = 4; // 2^4 = 16 seconds
+/// How long a successful password verification is considered valid for
+/// sensitive follow-up actions like passkey enrollment.
+const PASSWORD_REVERIFY_WINDOW_SECS: u64 = 120;
 
 pub struct AppState {
     pub db: Mutex<Option<Connection>>,
@@ -41,6 +45,9 @@ pub struct AppState {
     /// Uses an atomic so reads and increments do not need to hold a mutex across
     /// the authentication call (avoids lock ordering issues and contention).
     pub failed_auth_attempts: AtomicU32,
+    /// Epoch-seconds timestamp of the most recent successful password
+    /// verification, used to gate sensitive settings changes.
+    pub last_password_verify_epoch_secs: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +218,83 @@ pub(crate) fn verify_password_internal(app: &AppHandle, password: &str) -> Resul
     let key_version = config.key_version.unwrap_or(1);
     let pragma = format_key_pragma(&key_bytes, key_version);
     verify_password_key(app, &pragma)
+}
+
+fn now_epoch_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn mark_recent_password_verification(state: &State<AppState>) {
+    state
+        .last_password_verify_epoch_secs
+        .store(now_epoch_secs(), Ordering::SeqCst);
+}
+
+fn has_recent_password_verification(state: &State<AppState>) -> bool {
+    let last = state
+        .last_password_verify_epoch_secs
+        .load(Ordering::SeqCst);
+    if last == 0 {
+        return false;
+    }
+
+    let now = now_epoch_secs();
+    now.saturating_sub(last) <= PASSWORD_REVERIFY_WINDOW_SECS
+}
+
+pub(crate) fn ensure_recent_password_verification_for_passkey_enrollment(
+    state: &State<AppState>,
+    app: &AppHandle,
+) -> Result<(), String> {
+    // During first-run onboarding there is no configured password yet.
+    if load_auth_config(app)?.is_none() {
+        return Ok(());
+    }
+
+    if has_recent_password_verification(state) {
+        return Ok(());
+    }
+
+    Err("E-AUTH-REVERIFY: Please verify your password before enrolling biometrics.".to_string())
+}
+
+fn run_with_password_attempt_guard<T, F>(state: &State<AppState>, op: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String>,
+{
+    let slot = state.failed_auth_attempts.fetch_add(1, Ordering::SeqCst);
+
+    if slot >= MAX_FAILED_ATTEMPTS {
+        return Err(
+            "E-AUTH-LOCKED: Too many failed attempts. Restart Monet to try again.".to_string(),
+        );
+    }
+
+    if slot > 0 {
+        let backoff_power = (slot - 1).min(MAX_BACKOFF_POWER);
+        let delay_secs = 1u64 << backoff_power;
+        std::thread::sleep(std::time::Duration::from_secs(delay_secs));
+    }
+
+    match op() {
+        Ok(value) => {
+            state.failed_auth_attempts.store(0, Ordering::SeqCst);
+            mark_recent_password_verification(state);
+            Ok(value)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub(crate) fn verify_password_command(
+    state: &State<AppState>,
+    app: &AppHandle,
+    password: String,
+) -> Result<(), String> {
+    run_with_password_attempt_guard(state, || verify_password_internal(app, &password))
 }
 
 fn ensure_schema(conn: &Connection) -> Result<(), String> {
@@ -859,36 +943,10 @@ pub fn unlock_with_password_command(
     app: &AppHandle,
     password: String,
 ) -> Result<SetupStatus, String> {
-    // --- Brute-force protection (H-5) ---
-    // Atomically reserve an attempt slot.  `fetch_add` returns the value *before*
-    // the increment, so we check whether the slot we just took pushes us at or
-    // past the limit.  This means every concurrent caller increments the counter
-    // before it does any work, making it impossible for two callers to both see a
-    // value below MAX_FAILED_ATTEMPTS and proceed simultaneously.
-    let slot = state.failed_auth_attempts.fetch_add(1, Ordering::SeqCst);
-
-    if slot >= MAX_FAILED_ATTEMPTS {
-        // Counter is already past the limit; do not even attempt authentication.
-        // Leave the counter incremented so it stays locked.
-        return Err(
-            "E-AUTH-LOCKED: Too many failed attempts. Restart Monet to try again.".to_string(),
-        );
-    }
-
-    // Exponential back-off based on previous failures (slot = number already tried).
-    // slot == 0: first attempt, no delay.
-    // slot == 1: second attempt (1 prior failure), 1 s delay.
-    // slot == N: 2^(min(N-1, MAX_BACKOFF_POWER)) seconds.
-    if slot > 0 {
-        let backoff_power = (slot - 1).min(MAX_BACKOFF_POWER);
-        let delay_secs = 1u64 << backoff_power;
-        std::thread::sleep(std::time::Duration::from_secs(delay_secs));
-    }
-
-    match unlock_with_password_internal(state, app, &password) {
+    match run_with_password_attempt_guard(state, || {
+        unlock_with_password_internal(state, app, &password)
+    }) {
         Ok(config) => {
-            // Success: reset the counter so future unlock attempts start fresh.
-            state.failed_auth_attempts.store(0, Ordering::SeqCst);
             Ok(SetupStatus {
                 is_configured: true,
                 user_name: Some(config.user_name),
@@ -897,10 +955,7 @@ pub fn unlock_with_password_command(
                 ai_enabled: config.ai_enabled.unwrap_or(false),
             })
         }
-        Err(e) => {
-            // Slot was already counted by the fetch_add above; nothing more to do.
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }
 
@@ -954,7 +1009,7 @@ pub(crate) fn change_password_internal(
     let current_pragma = format_key_pragma(&current_key_bytes, current_version);
 
     // Verify current password before making any changes.
-    verify_password_key(app, &current_pragma)?;
+    run_with_password_attempt_guard(state, || verify_password_key(app, &current_pragma))?;
 
     let new_salt = create_fresh_salt()?;
     let new_key_bytes = derive_key_bytes(&new_password, &new_salt)?;
@@ -997,6 +1052,7 @@ pub(crate) fn change_password_internal(
 }
 
 pub(crate) fn set_biometric_enabled_internal(
+    state: &State<AppState>,
     app: &AppHandle,
     password: String,
     enabled: bool,
@@ -1006,7 +1062,7 @@ pub(crate) fn set_biometric_enabled_internal(
     let key_bytes = derive_key_bytes(&password, &salt)?;
     let key_version = config.key_version.unwrap_or(1);
     let key_pragma = format_key_pragma(&key_bytes, key_version);
-    verify_password_key(app, &key_pragma)?;
+    run_with_password_attempt_guard(state, || verify_password_key(app, &key_pragma))?;
 
     if enabled {
         config.biometric_enabled = true;
@@ -1039,13 +1095,21 @@ pub(crate) fn set_biometric_enabled_internal(
 pub(crate) fn lock_database_internal(state: &State<AppState>) {
     let mut lock = state.db.lock().unwrap_or_else(|e| e.into_inner());
     *lock = None;
+    state
+        .last_password_verify_epoch_secs
+        .store(0, Ordering::SeqCst);
 }
 
 /// Toggle the Groq AI summary opt-in (H-4).
 pub(crate) fn set_ai_enabled_internal(
+    state: &State<AppState>,
     app: &AppHandle,
     enabled: bool,
 ) -> Result<SetupStatus, String> {
+    if !db_is_open(state) {
+        return Err("E-AUTH-LOCKED: Unlock Monet before changing AI settings.".to_string());
+    }
+
     let mut config = require_auth_config(app)?;
     config.ai_enabled = Some(enabled);
     save_auth_config(app, &config)?;
@@ -1092,6 +1156,7 @@ pub fn run() {
             auth_state: Mutex::new(None),
             reg_state: Mutex::new(None),
             failed_auth_attempts: AtomicU32::new(0),
+            last_password_verify_epoch_secs: std::sync::atomic::AtomicU64::new(0),
         })
         .invoke_handler(tauri::generate_handler![
             auth::start_register,
@@ -1108,7 +1173,6 @@ pub fn run() {
             setup_cmds::reset_biometric_registration,
             setup_cmds::lock_database,
             setup_cmds::set_ai_enabled,
-            db_cmds::initialize_db,
             db_cmds::get_accounts,
             db_cmds::get_account_by_id,
             db_cmds::create_account,
