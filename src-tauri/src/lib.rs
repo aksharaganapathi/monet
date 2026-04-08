@@ -872,7 +872,8 @@ pub fn unlock_with_password_command(
 
     // Exponential back-off: 0 s, 1 s, 2 s, 4 s, 8 s, 16 s (capped at MAX_BACKOFF_POWER).
     if attempt > 0 {
-        let delay_secs = 1u64 << attempt.min(MAX_BACKOFF_POWER);
+        let backoff_power = (attempt - 1).min(MAX_BACKOFF_POWER);
+        let delay_secs = 1u64 << backoff_power;
         std::thread::sleep(std::time::Duration::from_secs(delay_secs));
     }
 
