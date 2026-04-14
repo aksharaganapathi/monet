@@ -599,7 +599,10 @@ function App() {
   return (
     <Layout>
       <div className={activePage === 'dashboard' ? 'block h-full' : 'hidden h-full'}>
-        <DashboardPage userName={userName ?? undefined} />
+        <DashboardPage
+          userName={userName ?? undefined}
+          aiEnabled={setupStatus?.aiEnabled ?? false}
+        />
       </div>
       <div className={activePage === 'accounts' ? 'block h-full' : 'hidden h-full'}>
         <AccountsPage />

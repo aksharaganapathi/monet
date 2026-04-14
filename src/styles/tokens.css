@@ -1,62 +1,62 @@
 @theme {
-  --color-gold-primary: #8b6914;
-  --color-gold-mid: #c4920a;
-  --color-gold-light: #fdf8ee;
-  --color-gold-border: #d4a84b;
+  --color-gold-primary: #b25f2b;
+  --color-gold-mid: #dd7a3c;
+  --color-gold-light: #fff1e8;
+  --color-gold-border: #f2b48e;
 
-  --color-positive: #1d7a4f;
-  --color-positive-light: #e8f5ee;
-  --color-negative: #c0392b;
-  --color-negative-light: #fdecea;
-  --color-warning: #c4920a;
-  --color-warning-light: #fdf3dc;
-  --color-info: #3b7ce8;
+  --color-positive: #13895e;
+  --color-positive-light: #e7f7ef;
+  --color-negative: #d1573b;
+  --color-negative-light: #fff0ea;
+  --color-warning: #dc8b33;
+  --color-warning-light: #fff5df;
+  --color-info: #3e7cf0;
   --color-info-light: #eef3ff;
-  --color-sankey-savings: #1d9e75;
-  --color-sankey-healthcare: #3b8bd4;
-  --color-sankey-dining: #c4920a;
-  --color-sankey-transport: #8b6914;
-  --color-sankey-shopping: #9b59b6;
-  --color-sankey-other: #95a5a6;
+  --color-sankey-savings: #11a36b;
+  --color-sankey-healthcare: #3e7cf0;
+  --color-sankey-dining: #dd7a3c;
+  --color-sankey-transport: #b25f2b;
+  --color-sankey-shopping: #8f65d6;
+  --color-sankey-other: #95a0ae;
 
-  --color-surface: #f6f1e8;
-  --color-surface-elevated: #fcf8f1;
-  --color-surface-muted: #f1eadf;
-  --color-surface-overlay: rgba(22, 27, 36, 0.34);
+  --color-surface: #f4f1eb;
+  --color-surface-elevated: #ffffff;
+  --color-surface-muted: #f7f4ef;
+  --color-surface-overlay: rgba(15, 23, 42, 0.28);
 
-  --color-border: rgba(22, 27, 36, 0.16);
-  --color-border-subtle: rgba(22, 27, 36, 0.08);
+  --color-border: rgba(15, 23, 42, 0.17);
+  --color-border-subtle: rgba(15, 23, 42, 0.1);
 
-  --color-text-primary: #161b24;
-  --color-text-secondary: #596273;
-  --color-text-tertiary: #7b8392;
+  --color-text-primary: #121926;
+  --color-text-secondary: #556070;
+  --color-text-tertiary: #7a8393;
   --color-text-inverse: #ffffff;
 
-  --color-accent: #8b6914;
-  --color-accent-hover: #6f5510;
-  --color-accent-subtle: #fdf8ee;
-  --color-accent-light: #f5ebd2;
+  --color-accent: #dd6b2f;
+  --color-accent-hover: #c25a22;
+  --color-accent-subtle: #fff0e7;
+  --color-accent-light: #ffe2d1;
 
-  --color-income: #1d7a4f;
-  --color-income-subtle: #e8f5ee;
-  --color-income-light: #d4ecdf;
+  --color-income: #13895e;
+  --color-income-subtle: #e8f7ef;
+  --color-income-light: #d0efe0;
 
-  --color-expense: #c0392b;
-  --color-expense-subtle: #fdecea;
-  --color-expense-light: #f8d7d4;
+  --color-expense: #d1573b;
+  --color-expense-subtle: #fff0ea;
+  --color-expense-light: #ffd7ca;
 
   --color-warning-subtle: #fdf3dc;
   --color-info-subtle: #eef3ff;
 
-  --color-sidebar: rgba(252, 248, 241, 0.96);
-  --color-sidebar-active: #fdf8ee;
+  --color-sidebar: rgba(255, 255, 255, 0.96);
+  --color-sidebar-active: #fff3eb;
 
   --border-hairline: 0.5px;
 
-  --font-sans: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', Tahoma, sans-serif;
-  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', Tahoma, sans-serif;
-  --font-logo: 'Monsieur La Doulaise', 'Times New Roman', serif;
-  --font-numeric: 'Segoe UI Variable Text', 'Aptos', 'Segoe UI', Tahoma, sans-serif;
+  --font-sans: 'Manrope', system-ui, -apple-system, sans-serif;
+  --font-display: 'Space Grotesk', 'Manrope', system-ui, sans-serif;
+  --font-logo: 'Space Grotesk', 'Manrope', system-ui, sans-serif;
+  --font-numeric: 'Manrope', system-ui, -apple-system, sans-serif;
 
   --radius-sm: 0.5rem;
   --radius-md: 0.5rem;
@@ -140,9 +140,9 @@
     overflow: hidden;
     position: relative;
     background:
-      radial-gradient(circle at 12% 12%, rgba(212, 168, 75, 0.14), transparent 30%),
-      radial-gradient(circle at 88% 10%, rgba(59, 124, 232, 0.08), transparent 24%),
-      linear-gradient(180deg, #fdfaf4 0%, #f5efe4 100%);
+      radial-gradient(circle at 10% 10%, rgba(221, 107, 47, 0.12), transparent 26%),
+      radial-gradient(circle at 88% 12%, rgba(19, 137, 94, 0.08), transparent 24%),
+      linear-gradient(180deg, #fbf9f6 0%, #f0ece6 100%);
     background-color: var(--color-surface);
   }
 
@@ -152,8 +152,8 @@
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0) 36%),
-      linear-gradient(90deg, rgba(212, 168, 75, 0.05) 0%, rgba(212, 168, 75, 0) 40%);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0) 34%),
+      linear-gradient(90deg, rgba(221, 107, 47, 0.04) 0%, rgba(221, 107, 47, 0) 40%);
     z-index: -2;
   }
 
@@ -162,9 +162,9 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    background-image: radial-gradient(rgba(139, 105, 20, 0.08) 0.5px, transparent 0.5px);
-    background-size: 10px 10px;
-    opacity: 0.22;
+    background-image: radial-gradient(rgba(18, 25, 38, 0.06) 0.5px, transparent 0.5px);
+    background-size: 12px 12px;
+    opacity: 0.16;
     z-index: -1;
   }
 
@@ -224,6 +224,7 @@
   .surface-card {
     background: var(--color-surface-elevated);
     border: var(--border-hairline) solid var(--color-border);
+    box-shadow: none;
   }
 
   .surface-muted {
@@ -266,8 +267,9 @@
   .chart-tooltip {
     border-radius: 12px;
     border: var(--border-hairline) solid var(--color-border);
-    background: var(--color-surface-elevated);
+    background: rgba(255, 255, 255, 0.96);
     color: var(--color-text-primary);
+    box-shadow: none;
   }
 
   .border {

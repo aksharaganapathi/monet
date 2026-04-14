@@ -12,7 +12,7 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary: 'border border-accent bg-accent text-text-inverse hover:bg-accent-hover hover:border-accent-hover active:scale-[0.98]',
-  secondary: 'surface-card text-text-primary hover:bg-surface-muted active:scale-[0.98]',
+  secondary: 'border border-border bg-white text-text-primary hover:bg-surface-muted active:scale-[0.98]',
   ghost: 'text-text-secondary hover:text-text-primary hover:bg-accent-subtle active:scale-[0.98]',
   danger: 'border border-expense bg-expense text-text-inverse hover:brightness-95 active:scale-[0.98]',
 };
@@ -34,7 +34,7 @@ export function Button({
   return (
     <button
       className={`
-        inline-flex items-center justify-center font-semibold rounded-lg
+        inline-flex items-center justify-center font-semibold rounded-xl
         transition-all duration-200 cursor-pointer
         disabled:opacity-50 disabled:cursor-not-allowed
         ${variantClasses[variant]}

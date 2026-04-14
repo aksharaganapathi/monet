@@ -11,8 +11,8 @@ interface CardProps {
 
 export function Card({ children, className = '', onClick, hoverable = false, glass = false }: CardProps) {
   const base = glass
-    ? 'rounded-xl p-4 glass-card'
-    : 'rounded-xl p-4 glass-card';
+    ? 'rounded-[28px] border border-border bg-white p-4'
+    : 'rounded-[28px] border border-border bg-white p-4';
 
 
   return (

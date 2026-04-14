@@ -1,19 +1,18 @@
-import { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ArrowRight, DollarSign } from 'lucide-react';
-import { useUIStore } from '../store/uiStore';
+import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowRight, DollarSign, Search } from 'lucide-react';
+import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
+import { getTodayISO } from '../lib/utils';
 import { useAccountStore } from '../store/accountStore';
 import { useCategoryStore } from '../store/categoryStore';
 import { useTransactionStore } from '../store/transactionStore';
-import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
-import { getTodayISO } from '../lib/utils';
+import { useUIStore } from '../store/uiStore';
 
 export function CommandPalette() {
   const { isCommandPaletteOpen, toggleCommandPalette, closeTransactionForm } = useUIStore();
-  const { accounts } = useAccountStore();
+  const { accounts, fetchAccounts } = useAccountStore();
   const { categories } = useCategoryStore();
   const { addTransaction, fetchTransactions } = useTransactionStore();
-  const { fetchAccounts } = useAccountStore();
 
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -33,9 +32,6 @@ export function CommandPalette() {
   }, [isCommandPaletteOpen]);
 
   const parseAndSubmit = async () => {
-    // Format: <amount> <category> [account] [note]
-    // Example: -50 Food Checking "lunch at cafe"
-    // Example: 5000 Salary Checking
     const parts = input.trim().split(/\s+/);
     if (parts.length < 2) {
       setStatus('error');
@@ -43,26 +39,46 @@ export function CommandPalette() {
       return;
     }
 
-    const amount = parseFloat(parts[0]);
-    if (isNaN(amount)) {
+    const amount = Number.parseFloat(parts[0]);
+    if (Number.isNaN(amount)) {
       setStatus('error');
       setStatusMsg('Invalid amount');
       return;
     }
 
-    const categorySearch = parts[1].toLowerCase();
-    const category = categories.find((c) => c.name.toLowerCase().includes(categorySearch));
+    const remainder = parts.slice(1);
+    let category: (typeof categories)[number] | null = null;
+    let categoryWordCount = 0;
+
+    for (let count = remainder.length; count >= 1; count -= 1) {
+      const candidate = remainder.slice(0, count).join(' ').toLowerCase();
+      const found =
+        categories.find((entry) => entry.name.toLowerCase() === candidate) ??
+        categories.find((entry) => entry.name.toLowerCase().includes(candidate));
+
+      if (found) {
+        category = found;
+        categoryWordCount = count;
+        break;
+      }
+    }
+
     if (!category) {
       setStatus('error');
-      setStatusMsg(`Category "${parts[1]}" not found`);
+      setStatusMsg(`Category "${remainder[0]}" not found`);
       return;
     }
 
+    const remainingAfterCategory = [...remainder.slice(categoryWordCount)];
     let account = accounts[0];
-    if (parts.length >= 3) {
-      const accountSearch = parts[2].toLowerCase();
-      const found = accounts.find((a) => a.name.toLowerCase().includes(accountSearch));
-      if (found) account = found;
+
+    if (remainingAfterCategory.length > 0) {
+      const accountSearch = remainingAfterCategory[0].toLowerCase();
+      const foundAccount = accounts.find((entry) => entry.name.toLowerCase().includes(accountSearch));
+      if (foundAccount) {
+        account = foundAccount;
+        remainingAfterCategory.shift();
+      }
     }
 
     if (!account) {
@@ -71,7 +87,10 @@ export function CommandPalette() {
       return;
     }
 
-    const note = parts.length >= 4 ? parts.slice(3).join(' ').replace(/"/g, '') : undefined;
+    const note =
+      remainingAfterCategory.length > 0
+        ? remainingAfterCategory.join(' ').replace(/"/g, '')
+        : undefined;
 
     try {
       await addTransaction({
@@ -83,20 +102,20 @@ export function CommandPalette() {
       });
       await Promise.all([fetchTransactions(), fetchAccounts()]);
       setStatus('success');
-      setStatusMsg(`Added ${amount >= 0 ? '+' : ''}$${Math.abs(amount).toFixed(2)} → ${category.name}`);
+      setStatusMsg(`Added ${amount >= 0 ? '+' : ''}$${Math.abs(amount).toFixed(2)} to ${category.name}`);
       setTimeout(() => {
         toggleCommandPalette();
         closeTransactionForm();
       }, 800);
-    } catch (e) {
+    } catch (error) {
       setStatus('error');
-      setStatusMsg((e as Error).message);
+      setStatusMsg((error as Error).message);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') parseAndSubmit();
-    if (e.key === 'Escape') toggleCommandPalette();
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Enter') parseAndSubmit();
+    if (event.key === 'Escape') toggleCommandPalette();
   };
 
   return (
@@ -108,8 +127,8 @@ export function CommandPalette() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          onClick={(e) => {
-            if (e.target === overlayRef.current) toggleCommandPalette();
+          onClick={(event) => {
+            if (event.target === overlayRef.current) toggleCommandPalette();
           }}
         >
           <motion.div
@@ -120,12 +139,12 @@ export function CommandPalette() {
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="flex items-center gap-3 border-b border-border-subtle bg-surface-muted px-5 py-4">
-              <DollarSign size={18} className="text-accent flex-shrink-0" />
+              <DollarSign size={18} className="shrink-0 text-accent" />
               <input
                 ref={inputRef}
                 value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
+                onChange={(event) => {
+                  setInput(event.target.value);
                   setStatus('idle');
                 }}
                 onKeyDown={handleKeyDown}
@@ -134,7 +153,7 @@ export function CommandPalette() {
                 aria-label="Quick transaction entry"
               />
               <kbd className="surface-card rounded-md px-2 py-0.5 text-xs text-text-tertiary">
-                ↵
+                Enter
               </kbd>
             </div>
 
@@ -143,7 +162,7 @@ export function CommandPalette() {
                 <div className="flex items-center gap-2">
                   <Search size={12} />
                   <span>
-                    Format: <code className="text-text-secondary">amount category [account] [note]</code> • Negative = expense
+                    Format: <code className="text-text-secondary">amount category [account] [note]</code> | Negative = expense
                   </span>
                 </div>
               )}
@@ -155,7 +174,7 @@ export function CommandPalette() {
               )}
               {status === 'error' && (
                 <div className="flex items-center gap-2 text-expense">
-                  <span>⚠ {statusMsg}</span>
+                  <span>Warning: {statusMsg}</span>
                 </div>
               )}
             </div>
