@@ -73,12 +73,3 @@ pub fn lock_database(state: State<AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Opt the user in or out of the Groq AI summary feature (H-4).
-#[tauri::command]
-pub fn set_ai_enabled(
-    state: State<AppState>,
-    app: AppHandle,
-    enabled: bool,
-) -> Result<SetupStatus, String> {
-    crate::set_ai_enabled_internal(&state, &app, enabled)
-}

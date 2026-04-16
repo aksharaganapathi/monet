@@ -8,7 +8,6 @@ import {
   Plus,
   Save,
   ShieldCheck,
-  Sparkles,
   UserRound,
   X,
 } from 'lucide-react';
@@ -106,10 +105,6 @@ export function SettingsPage({
   const [biometricError, setBiometricError] = useState('');
   const [biometricBusy, setBiometricBusy] = useState(false);
 
-  const [aiEnabled, setAiEnabled] = useState(setupStatus?.aiEnabled ?? false);
-  const [aiMessage, setAiMessage] = useState('');
-  const [aiError, setAiError] = useState('');
-  const [aiBusy, setAiBusy] = useState(false);
 
   // Sync domains & Google OAuth
   const [syncDomains, setSyncDomains] = useState<string[]>([]);
@@ -222,21 +217,6 @@ export function SettingsPage({
     }
   };
 
-  const toggleAi = async (enable: boolean) => {
-    setAiBusy(true);
-    setAiError('');
-    setAiMessage('');
-    try {
-      const status = await authRepository.setAiEnabled(enable);
-      onStatusChange(status);
-      setAiEnabled(enable);
-      setAiMessage(enable ? 'AI summaries enabled.' : 'AI summaries disabled.');
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : 'Unable to update AI settings.');
-    } finally {
-      setAiBusy(false);
-    }
-  };
 
   const addDomain = async () => {
     setSyncError('');
@@ -446,38 +426,6 @@ export function SettingsPage({
               </div>
             </Card>
 
-            {/* AI Insights toggle */}
-            <Card className="col-span-12 rounded-[24px] p-5">
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-accent-subtle text-accent">
-                    <Sparkles size={18} />
-                  </span>
-                  <div>
-                    <h2 className="text-lg font-semibold text-text-primary">AI Insights</h2>
-                    <p className="text-sm text-text-secondary">
-                      Monthly spending summaries powered by your chosen AI provider. Financial data is sent only when enabled.
-                    </p>
-                  </div>
-                </div>
-
-                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/60 bg-white/60 p-4">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-[var(--color-accent)]"
-                    checked={aiEnabled}
-                    onChange={(e) => toggleAi(e.target.checked)}
-                    disabled={aiBusy}
-                  />
-                  <span className="text-sm font-medium text-text-primary">
-                    {aiEnabled ? 'AI summaries are on — spending data is sent to your provider.' : 'Enable AI-powered monthly summaries (opt-in)'}
-                  </span>
-                </label>
-
-                {aiMessage && <p className="text-sm text-income">{aiMessage}</p>}
-                {aiError && <p className="text-sm text-expense">{aiError}</p>}
-              </div>
-            </Card>
 
             {/* Email Sync */}
             <Card className="col-span-12 rounded-[24px] p-5">

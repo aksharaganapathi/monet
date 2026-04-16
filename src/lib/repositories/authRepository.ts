@@ -49,8 +49,4 @@ export const authRepository = {
     return invoke('lock_database');
   },
 
-  /** Opt in or out of Groq AI summaries (H-4). */
-  async setAiEnabled(enabled: boolean): Promise<SetupStatus> {
-    return invoke<SetupStatus>('set_ai_enabled', { enabled });
-  },
 };

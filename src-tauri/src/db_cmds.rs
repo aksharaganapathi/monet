@@ -646,10 +646,6 @@ pub async fn summarize_month_story(state: State<'_, AppState>, app: AppHandle, y
 
     let fallback = fallback_month_story(income, expense, &categories);
 
-    // AI summaries require explicit user opt-in (H-4).
-    if !crate::get_ai_enabled(&app) {
-        return Ok(fallback);
-    }
 
     let model = db_setting(&app, "ai_model")
         .or_else(|| env_var_or_compile("MONET_GROQ_MODEL", option_env!("MONET_GROQ_MODEL")))

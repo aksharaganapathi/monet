@@ -104,10 +104,8 @@ function BalanceTooltip({ active, payload, label }: any) {
 
 export function DashboardPage({
   userName,
-  aiEnabled,
 }: {
   userName?: string;
-  aiEnabled: boolean;
 }) {
   const {
     accounts,
@@ -146,11 +144,6 @@ export function DashboardPage({
   useEffect(() => {
     let cancelled = false;
 
-    if (!aiEnabled) {
-      setAiSummary('');
-      setAiStatus('idle');
-      return undefined;
-    }
 
     const loadSummary = async () => {
       setAiStatus('loading');
@@ -173,7 +166,7 @@ export function DashboardPage({
     return () => {
       cancelled = true;
     };
-  }, [aiEnabled, selectedMonth.month, selectedMonth.year, selectedMonthStoryRevision]);
+  }, [selectedMonth.month, selectedMonth.year, selectedMonthStoryRevision]);
 
   const netWorth = calculateNetWorth(accounts);
   const previousMonthDate = new Date(selectedMonth.year, selectedMonth.month - 2, 1);
@@ -380,13 +373,11 @@ export function DashboardPage({
             </div>
 
             <div className="mt-4 rounded-[24px] border border-border bg-surface-muted px-4 py-4 text-sm leading-6 text-text-secondary">
-              {aiEnabled
-                ? aiStatus === 'loading'
-                  ? 'Generating a summary for this month...'
-                  : aiStatus === 'ready'
-                    ? aiSummary
-                    : `${fallbackSummary} AI summary could not be loaded right now.`
-                : fallbackSummary}
+              {aiStatus === 'loading'
+                ? 'Generating a summary for this month...'
+                : aiStatus === 'ready'
+                  ? aiSummary
+                  : `${fallbackSummary} AI summary could not be loaded right now.`}
             </div>
           </Card>
         </div>

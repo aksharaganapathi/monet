@@ -53,8 +53,6 @@ pub struct SetupStatus {
     pub user_name: Option<String>,
     pub biometric_enabled: bool,
     pub can_use_biometric_unlock: bool,
-    /// Whether the user has opted into the Groq AI summary feature (H-4).
-    pub ai_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,9 +63,6 @@ struct StoredAuthConfig {
     db_salt_b64: String,
     biometric_enabled: bool,
     biometric_key_blob_b64: Option<String>,
-    /// User has opted into Groq AI summaries (H-4).
-    #[serde(default)]
-    ai_enabled: Option<bool>,
     #[serde(default)]
     failed_auth_attempts: Option<u32>,
     #[serde(default)]
@@ -110,15 +105,6 @@ fn load_auth_config(app: &AppHandle) -> Result<Option<StoredAuthConfig>, String>
     Ok(Some(config))
 }
 
-/// Returns whether the user has opted into the Groq AI summary feature (H-4).
-/// Accessible to sub-modules (e.g. `db_cmds`) without exposing `StoredAuthConfig`.
-pub(crate) fn get_ai_enabled(app: &AppHandle) -> bool {
-    load_auth_config(app)
-        .ok()
-        .flatten()
-        .and_then(|c| c.ai_enabled)
-        .unwrap_or(false)
-}
 
 fn save_auth_config(app: &AppHandle, config: &StoredAuthConfig) -> Result<(), String> {
     let path = auth_config_path(app)?;
@@ -690,7 +676,6 @@ pub fn get_setup_status_internal(app: &AppHandle) -> Result<SetupStatus, String>
             user_name: Some(config.user_name),
             biometric_enabled: config.biometric_enabled,
             can_use_biometric_unlock: config.biometric_key_blob_b64.is_some(),
-            ai_enabled: config.ai_enabled.unwrap_or(false),
         });
     }
 
@@ -699,7 +684,6 @@ pub fn get_setup_status_internal(app: &AppHandle) -> Result<SetupStatus, String>
         user_name: None,
         biometric_enabled: false,
         can_use_biometric_unlock: false,
-        ai_enabled: false,
     })
 }
 
@@ -743,7 +727,6 @@ pub fn complete_onboarding_internal(
         db_salt_b64: base64::engine::general_purpose::STANDARD.encode(salt.as_ref()),
         biometric_enabled,
         biometric_key_blob_b64: biometric_blob_b64.clone(),
-        ai_enabled: Some(false),
         failed_auth_attempts: Some(0),
         lockout_until_epoch_secs: None,
     };
@@ -756,7 +739,6 @@ pub fn complete_onboarding_internal(
         user_name: Some(config.user_name),
         biometric_enabled: config.biometric_enabled,
         can_use_biometric_unlock: biometric_blob_b64.is_some(),
-        ai_enabled: false,
     })
 }
 
@@ -776,7 +758,6 @@ pub fn unlock_with_password_command(
                 user_name: Some(config.user_name),
                 biometric_enabled: config.biometric_enabled,
                 can_use_biometric_unlock: config.biometric_key_blob_b64.is_some(),
-                ai_enabled: config.ai_enabled.unwrap_or(false),
             };
             bootstrap_sync_after_unlock(state, app);
             Ok(status)
@@ -803,7 +784,6 @@ pub(crate) fn update_user_name_internal(
         user_name: Some(config.user_name),
         biometric_enabled: config.biometric_enabled,
         can_use_biometric_unlock: config.biometric_key_blob_b64.is_some(),
-        ai_enabled: config.ai_enabled.unwrap_or(false),
     })
 }
 
@@ -858,7 +838,6 @@ pub(crate) fn change_password_internal(
         user_name: Some(config.user_name),
         biometric_enabled: config.biometric_enabled,
         can_use_biometric_unlock: config.biometric_key_blob_b64.is_some(),
-        ai_enabled: config.ai_enabled.unwrap_or(false),
     })
 }
 
@@ -894,7 +873,6 @@ pub(crate) fn set_biometric_enabled_internal(
         user_name: Some(config.user_name),
         biometric_enabled: config.biometric_enabled,
         can_use_biometric_unlock: config.biometric_key_blob_b64.is_some(),
-        ai_enabled: config.ai_enabled.unwrap_or(false),
     })
 }
 
@@ -908,27 +886,6 @@ pub(crate) fn lock_database_internal(state: &State<AppState>) {
         .store(0, Ordering::SeqCst);
 }
 
-/// Toggle the Groq AI summary opt-in (H-4).
-pub(crate) fn set_ai_enabled_internal(
-    state: &State<AppState>,
-    app: &AppHandle,
-    enabled: bool,
-) -> Result<SetupStatus, String> {
-    if !db_is_open(state) {
-        return Err("E-AUTH-LOCKED: Unlock Monet before changing AI settings.".to_string());
-    }
-
-    let mut config = require_auth_config(app)?;
-    config.ai_enabled = Some(enabled);
-    save_auth_config(app, &config)?;
-    Ok(SetupStatus {
-        is_configured: true,
-        user_name: Some(config.user_name),
-        biometric_enabled: config.biometric_enabled,
-        can_use_biometric_unlock: config.biometric_key_blob_b64.is_some(),
-        ai_enabled: enabled,
-    })
-}
 
 pub fn run() {
     #[cfg(debug_assertions)]
@@ -979,7 +936,6 @@ pub fn run() {
             setup_cmds::verify_password,
             setup_cmds::reset_biometric_registration,
             setup_cmds::lock_database,
-            setup_cmds::set_ai_enabled,
             db_cmds::get_accounts,
             db_cmds::get_account_by_id,
             db_cmds::create_account,
