@@ -118,22 +118,19 @@ export function SettingsPage({
   const [syncError, setSyncError] = useState('');
   const [googleConnectBusy, setGoogleConnectBusy] = useState(false);
   const [syncActive, setSyncActive] = useState(false);
-  const [syncWorkerActive, setSyncWorkerActive] = useState(false);
   const [connectedEmail, setConnectedEmail] = useState('');
 
   // Load settings from encrypted DB on mount
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const [domains, active, workerActive, email] = await Promise.all([
+        const [domains, active, email] = await Promise.all([
           settingsRepository.getSyncDomains(),
           settingsRepository.isSyncActive(),
-          settingsRepository.isSyncWorkerActive(),
           settingsRepository.getGoogleConnectedEmail(),
         ]);
         setSyncDomains(domains);
         setSyncActive(active);
-        setSyncWorkerActive(workerActive);
         setConnectedEmail(email);
       } catch {
         // Settings not available yet (DB not open)
@@ -294,12 +291,10 @@ export function SettingsPage({
       const message = await settingsRepository.connectGoogleAccount();
       setSyncMessage(message);
       setSyncActive(true);
-      const [email, workerActive] = await Promise.all([
+      const [email] = await Promise.all([
         settingsRepository.getGoogleConnectedEmail(),
-        settingsRepository.isSyncWorkerActive(),
       ]);
       setConnectedEmail(email);
-      setSyncWorkerActive(workerActive);
     } catch (error) {
       setSyncError(getUnknownErrorMessage(error, 'Unable to start Google connection flow.'));
     } finally {
