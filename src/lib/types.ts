@@ -25,6 +25,7 @@ export const TransactionSchema = z.object({
   account_id: z.number(),
   date: z.string(),
   note: z.string().nullable(),
+  merchant: z.string().nullable(),
   flagged: z.union([z.number(), z.boolean()]).transform((value) => Boolean(value)),
   created_at: z.string(),
 });
@@ -36,16 +37,6 @@ export const BudgetSchema = z.object({
   period: z.literal('monthly'),
   created_at: z.string(),
   updated_at: z.string(),
-});
-
-export const RecurringSchema = z.object({
-  id: z.number(),
-  amount: z.number(),
-  category_id: z.number(),
-  account_id: z.number(),
-  frequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
-  next_run_date: z.string(),
-  note: z.string().nullable(),
 });
 
 export const TransactionWithDetailsSchema = TransactionSchema.extend({
@@ -71,7 +62,6 @@ export type Account = z.infer<typeof AccountSchema>;
 export type Category = z.infer<typeof CategorySchema>;
 export type Transaction = z.infer<typeof TransactionSchema>;
 export type Budget = z.infer<typeof BudgetSchema>;
-export type Recurring = z.infer<typeof RecurringSchema>;
 export type TransactionWithDetails = z.infer<typeof TransactionWithDetailsSchema>;
 export type BudgetProgress = z.infer<typeof BudgetProgressSchema>;
 
@@ -95,6 +85,7 @@ export interface CreateTransactionDTO {
   account_id: number;
   date: string;
   note?: string;
+  merchant?: string;
 }
 
 export interface UpdateTransactionDTO {
@@ -104,6 +95,7 @@ export interface UpdateTransactionDTO {
   account_id: number;
   date: string;
   note?: string;
+  merchant?: string;
 }
 
 export interface CreateCategoryDTO {

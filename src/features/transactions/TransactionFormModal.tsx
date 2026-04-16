@@ -24,6 +24,7 @@ export function TransactionFormModal() {
   const [accountId, setAccountId] = useState('');
   const [date, setDate] = useState(getTodayISO());
   const [note, setNote] = useState('');
+  const [merchant, setMerchant] = useState('');
   const [isExpense, setIsExpense] = useState(true);
   const [categorySearch, setCategorySearch] = useState('');
   const [error, setError] = useState('');
@@ -53,6 +54,7 @@ export function TransactionFormModal() {
       setAccountId(editingTransaction.account_id.toString());
       setDate(editingTransaction.date);
       setNote(editingTransaction.note ?? '');
+      setMerchant(editingTransaction.merchant ?? '');
       setIsExpense(editingTransaction.amount < 0);
       setCategorySearch(editingTransaction.category_name);
     } else {
@@ -62,6 +64,7 @@ export function TransactionFormModal() {
       setAccountId(accounts[0]?.id.toString() ?? '');
       setDate(getTodayISO());
       setNote('');
+      setMerchant('');
       setIsExpense(true);
       setCategorySearch('');
     }
@@ -104,6 +107,7 @@ export function TransactionFormModal() {
           account_id: Number.parseInt(accountId, 10),
           date,
           note: note.trim() || undefined,
+          merchant: merchant.trim() || undefined,
         });
       } else {
         await addTransaction({
@@ -112,6 +116,7 @@ export function TransactionFormModal() {
           account_id: Number.parseInt(accountId, 10),
           date,
           note: note.trim() || undefined,
+          merchant: merchant.trim() || undefined,
         });
       }
       closeTransactionForm();
@@ -198,6 +203,13 @@ export function TransactionFormModal() {
           value={note}
           onChange={(event) => setNote(event.target.value)}
           placeholder="Optional note"
+        />
+
+        <Input
+          label="Merchant"
+          value={merchant}
+          onChange={(event) => setMerchant(event.target.value)}
+          placeholder="Optional merchant"
         />
 
         <div className="flex justify-end gap-3 pt-2">

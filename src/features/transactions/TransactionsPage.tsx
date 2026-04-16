@@ -6,6 +6,7 @@ import {
   Flag,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
 } from 'lucide-react';
@@ -15,6 +16,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { getCategoryColor } from '../../lib/categories';
 import { detectRecurring } from '../../lib/finance';
+import { settingsRepository } from '../../lib/repositories/settingsRepository';
 import { formatCurrency, formatDate, getMonthDateRange } from '../../lib/utils';
 import { useAccountStore } from '../../store/accountStore';
 import { useCategoryStore } from '../../store/categoryStore';
@@ -90,12 +92,37 @@ export function TransactionsPage() {
     clearTransactionFilters,
   } = useUIStore();
   const [deletingTransactionId, setDeletingTransactionId] = useState<number | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
+  const [syncError, setSyncError] = useState('');
 
   useEffect(() => {
     if (!hasLoaded) void fetchTransactions();
     if (!accountsLoaded) void fetchAccounts();
     void fetchCategories();
   }, [accountsLoaded, fetchAccounts, fetchCategories, fetchTransactions, hasLoaded]);
+
+  const syncInbox = async () => {
+    setSyncBusy(true);
+    setSyncMessage('');
+    setSyncError('');
+
+    try {
+      const result = await settingsRepository.importSyncQueue();
+      if (result.imported > 0) {
+        await Promise.all([fetchTransactions(true), fetchAccounts(true)]);
+        setSyncMessage(
+          `Imported ${result.imported} transaction${result.imported === 1 ? '' : 's'} from sync queue.`,
+        );
+      } else {
+        setSyncMessage('No new transactions in the sync queue.');
+      }
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Unable to import sync queue.');
+    } finally {
+      setSyncBusy(false);
+    }
+  };
 
   const recurringPatterns = useMemo(() => detectRecurring(transactions), [transactions]);
 
@@ -152,6 +179,7 @@ export function TransactionsPage() {
 
       const searchable = [
         transaction.note ?? '',
+        transaction.merchant ?? '',
         transaction.category_name,
         transaction.account_name,
         formatCurrency(transaction.amount),
@@ -228,8 +256,18 @@ export function TransactionsPage() {
             Searchable cash movement, flagged reviews, and recurring signals in one
             place.
           </p>
+          {syncMessage && <p className="mt-1 text-xs text-income">{syncMessage}</p>}
+          {syncError && <p className="mt-1 text-xs text-expense">{syncError}</p>}
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            icon={<RefreshCw size={16} />}
+            onClick={syncInbox}
+            disabled={syncBusy}
+          >
+            {syncBusy ? 'Syncing...' : 'Sync Inbox'}
+          </Button>
           <Button variant="secondary" onClick={() => setActivePage('categories')}>
             Manage Categories
           </Button>
@@ -473,6 +511,12 @@ export function TransactionsPage() {
                             {transaction.note && (
                               <p className="mt-1 truncate text-xs text-text-secondary">
                                 {transaction.note}
+                              </p>
+                            )}
+
+                            {transaction.merchant && (
+                              <p className="mt-0.5 truncate text-[11px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
+                                Merchant: {transaction.merchant}
                               </p>
                             )}
                           </div>

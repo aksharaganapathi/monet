@@ -1,6 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { startTransition } from 'react';
-import { authenticate, checkStatus } from '@tauri-apps/plugin-biometric';
 import { invoke } from '@tauri-apps/api/core';
 import { Layout } from './components/Layout';
 import { DashboardPage } from './features/dashboard/DashboardPage';
@@ -15,15 +14,21 @@ import { Button } from './components/ui/Button';
 import { Input } from './components/ui/Input';
 import { Card } from './components/ui/Card';
 import { authRepository } from './lib/repositories/authRepository';
+import { settingsRepository } from './lib/repositories/settingsRepository';
 import { normalizeAuthError } from './lib/authErrors';
 import type { SetupStatus } from './lib/types';
-import { LockKeyhole, ShieldCheck, Smile, UserRound } from 'lucide-react';
+import { LockKeyhole, ShieldCheck, ScanFace, UserRound } from 'lucide-react';
+import { useAccountStore } from './store/accountStore';
+import { useTransactionStore } from './store/transactionStore';
+import { useCategoryStore } from './store/categoryStore';
+import { useBudgetStore } from './store/budgetStore';
 import monetLogo from './monet_logo.svg';
 
 type AuthView = 'booting' | 'onboarding' | 'locked' | 'unlocked';
 
 /** Lock the vault after this many milliseconds of inactivity (M-5). */
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+const SYNC_POLL_INTERVAL_MS = 30 * 1000; // 30 seconds (testing)
 
 function toBase64Url(data: Uint8Array): string {
   const base64 = btoa(String.fromCharCode(...data));
@@ -282,7 +287,7 @@ function LockScreen({
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-text-secondary">Vault locked</p>
             <h1 className="text-3xl font-semibold tracking-[-0.04em] text-text-primary">Welcome back to Monet.</h1>
             <p className="max-w-md text-sm leading-6 text-text-secondary">
-              Your database now uses password-derived encryption. If biometric unlock is available, you can use that first and fall back to your password anytime.
+              Your database is securely locked. Unlock it below to access your vault.
             </p>
           </div>
 
@@ -315,7 +320,7 @@ function LockScreen({
                 className={`rounded-2xl border px-4 py-4 text-left transition-colors ${usePassword ? 'border-accent bg-accent-subtle text-text-primary' : 'border-white/60 bg-white/55 text-text-secondary'}`}
               >
                 <p className="text-sm font-semibold">Password unlock</p>
-                <p className="mt-1 text-xs leading-5">Use your password to derive the encryption key directly.</p>
+                <p className="mt-1 text-xs leading-5">Use your password to unlock the vault.</p>
               </button>
             </div>
           </div>
@@ -334,7 +339,7 @@ function LockScreen({
 
               <div className={`rounded-[24px] border border-white/60 bg-white/60 p-6 text-center transition-transform ${error ? 'animate-[shake_0.4s_cubic-bezier(.36,.07,.19,.97)_both]' : ''}`}>
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent-subtle text-accent">
-                  <Smile size={28} />
+                  <ScanFace size={28} />
                 </div>
                 <Button onClick={onUnlockWithBiometrics} className="mt-5 w-full justify-center gap-2" size="lg" disabled={busy}>
                   {busy ? 'Waiting for approval...' : 'Unlock with biometrics'}
@@ -349,7 +354,7 @@ function LockScreen({
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-text-secondary">Password unlock</p>
                 <h2 className="text-2xl font-semibold text-text-primary">Enter your Monet password</h2>
-                <p className="text-sm leading-6 text-text-secondary">If biometric unlock is unavailable or skipped, your password can always unlock the encrypted database.</p>
+                <p className="text-sm leading-6 text-text-secondary">Use your password to unlock your vault.</p>
               </div>
               <Input
                 label="Password"
@@ -388,9 +393,14 @@ function App() {
   const [userName, setUserName] = useState<string | null>(null);
   const [usePasswordUnlock, setUsePasswordUnlock] = useState(false);
 
+  const fetchAccounts = useAccountStore((state) => state.fetchAccounts);
+  const fetchNetWorthTrend = useAccountStore((state) => state.fetchNetWorthTrend);
+  const fetchTransactions = useTransactionStore((state) => state.fetchTransactions);
+  const fetchCategories = useCategoryStore((state) => state.fetchCategories);
+  const fetchBudgets = useBudgetStore((state) => state.fetchBudgets);
+
   const isTauriRuntime = typeof window !== 'undefined' && Boolean((window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
   const isWindowsRuntime = typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent);
-  const isMobileRuntime = typeof navigator !== 'undefined' && /android|iphone|ipad|ipod/i.test(navigator.userAgent);
 
   const supportsBiometrics = useMemo(() => {
     if (!isTauriRuntime) return false;
@@ -417,6 +427,31 @@ function App() {
     setUsePasswordUnlock(true);
   }, [isTauriRuntime]);
 
+  const refreshAfterSyncImport = useCallback(async () => {
+    await Promise.all([
+      fetchTransactions(true),
+      fetchAccounts(true),
+      fetchNetWorthTrend(),
+      fetchCategories(),
+      fetchBudgets(true),
+    ]);
+  }, [fetchAccounts, fetchBudgets, fetchCategories, fetchNetWorthTrend, fetchTransactions]);
+
+  const runBackgroundSyncImport = useCallback(async () => {
+    if (!isTauriRuntime || authViewRef.current !== 'unlocked') {
+      return;
+    }
+
+    try {
+      const result = await settingsRepository.importSyncQueue();
+      if (result.imported > 0) {
+        await refreshAfterSyncImport();
+      }
+    } catch {
+      // best-effort background sync
+    }
+  }, [isTauriRuntime, refreshAfterSyncImport]);
+
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(lockVault, IDLE_TIMEOUT_MS);
@@ -437,6 +472,23 @@ function App() {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
   }, [isTauriRuntime, authView, resetIdleTimer]);
+
+  useEffect(() => {
+    if (!isTauriRuntime || authView !== 'unlocked') {
+      return;
+    }
+
+    // Trigger one sync immediately on unlock before entering the poll loop.
+    void runBackgroundSyncImport();
+
+    const intervalId = setInterval(() => {
+      void runBackgroundSyncImport();
+    }, SYNC_POLL_INTERVAL_MS);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [authView, isTauriRuntime, runBackgroundSyncImport]);
 
   useEffect(() => {
     const boot = async () => {
@@ -492,16 +544,6 @@ function App() {
 
       if (isWindowsRuntime) {
         await runWindowsHelloUnlock();
-        setAuthView('unlocked');
-        return;
-      }
-
-      if (isMobileRuntime) {
-        const status = await checkStatus();
-        if (!status.isAvailable) {
-          throw new Error('Biometric unlock is not available on this device.');
-        }
-        await authenticate('Log in to Monet');
         setAuthView('unlocked');
         return;
       }

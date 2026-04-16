@@ -40,7 +40,8 @@ export const transactionRepository = {
       categoryId: dto.category_id,
       accountId: dto.account_id,
       date: dto.date, 
-      note: dto.note ?? null 
+      note: dto.note ?? null,
+      merchant: dto.merchant ?? null,
     });
     
     if (result.lastInsertId == null) {
@@ -73,6 +74,7 @@ export const transactionRepository = {
       accountId: dto.account_id,
       date: dto.date,
       note: dto.note ?? null,
+      merchant: dto.merchant ?? null,
     });
   },
 

@@ -16,6 +16,8 @@ dist-ssr
 .env
 .env.*
 !.env.example
+client_secret_*.json
+credentials.json
 
 # Editor directories and files
 .vscode/*
@@ -33,3 +35,8 @@ src-tauri/monet.db
 src-tauri/monet.db-shm
 src-tauri/monet.db-wal
 src-tauri/passkey.json
+
+# Local sync script artifacts
+sync_queue/
+token.json
+trusted_senders.json

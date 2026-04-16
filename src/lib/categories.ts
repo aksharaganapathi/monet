@@ -31,7 +31,7 @@ export function getCategoryColor(name: string): string {
   return CATEGORY_COLOR_MAP[name.trim().toLowerCase()] ?? 'var(--color-sankey-other)';
 }
 
-export function isIncomeCategoryName(name: string): boolean {
+function isIncomeCategoryName(name: string): boolean {
   return INCOME_CATEGORY_NAMES.has(name.trim().toLowerCase());
 }
 

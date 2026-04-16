@@ -1,13 +1,13 @@
-export interface AccountLike {
+interface AccountLike {
   balance: number;
 }
 
-export interface CategoryLike {
+interface CategoryLike {
   id: number;
   name: string;
 }
 
-export interface TransactionLike {
+interface TransactionLike {
   id: number;
   amount: number;
   date: string;
@@ -16,14 +16,14 @@ export interface TransactionLike {
   category_name?: string;
 }
 
-export interface CashFlowSummary {
+interface CashFlowSummary {
   income: number;
   expenses: number;
   netFlow: number;
   transactionCount: number;
 }
 
-export interface CategoryGroup {
+interface CategoryGroup {
   categoryId: number | null;
   categoryName: string;
   spent: number;
@@ -32,62 +32,7 @@ export interface CategoryGroup {
   count: number;
 }
 
-export interface SpendingConcentration {
-  categoryName: string | null;
-  amount: number;
-  share: number;
-  level: 'low' | 'moderate' | 'high';
-}
-
-export interface HealthScoreInput {
-  savingsRate: number;
-  cashRunwayMonths: number | null;
-  spendingConcentrationShare: number;
-  hasIncome: boolean;
-  transactionCount: number;
-}
-
-export interface HealthSignal {
-  key: 'savings-rate' | 'runway' | 'concentration' | 'income' | 'data-quality';
-  label: string;
-  tone: 'positive' | 'warning' | 'negative';
-}
-
-export interface HealthScoreResult {
-  score: number;
-  band: 'Excellent' | 'Good' | 'Fair' | 'Needs attention';
-  tone: 'positive' | 'gold' | 'warning' | 'negative';
-  signals: HealthSignal[];
-}
-
-export interface SankeyNode {
-  id: string;
-  label: string;
-  value: number;
-  color: string;
-  type: 'source' | 'expense' | 'savings' | 'deficit';
-}
-
-export interface SankeyLink {
-  id: string;
-  source: string;
-  target: string;
-  value: number;
-  color: string;
-  percentageOfIncome: number;
-}
-
-export interface SankeyData {
-  state: 'ready' | 'empty';
-  totalIncome: number;
-  totalExpenses: number;
-  netFlow: number;
-  nodes: SankeyNode[];
-  links: SankeyLink[];
-  insight: string;
-}
-
-export interface RecurringPattern {
+interface RecurringPattern {
   note: string;
   amount: number;
   category: string | null;
@@ -97,7 +42,7 @@ export interface RecurringPattern {
   transaction_ids: number[];
 }
 
-export interface MonthForecast {
+interface MonthForecast {
   active: boolean;
   confidenceLabel: 'Estimated' | 'Projected' | null;
   transactionCount: number;
@@ -111,27 +56,12 @@ export interface MonthForecast {
   projectedNetFlow: number;
 }
 
-const DEFAULT_CATEGORY_COLOR = 'var(--color-sankey-other)';
-const SANKEY_CATEGORY_COLOR_MAP: Record<string, string> = {
-  savings: 'var(--color-sankey-savings)',
-  deficit: 'var(--color-expense)',
-  healthcare: 'var(--color-sankey-healthcare)',
-  dining: 'var(--color-sankey-dining)',
-  transport: 'var(--color-sankey-transport)',
-  shopping: 'var(--color-sankey-shopping)',
-  other: 'var(--color-sankey-other)',
-};
-
 const FREQUENCY_WINDOWS = [
   { frequency: 'daily' as const, min: 1, max: 2, step: 1 },
   { frequency: 'weekly' as const, min: 5, max: 9, step: 7 },
   { frequency: 'monthly' as const, min: 28, max: 32, step: 30 },
   { frequency: 'yearly' as const, min: 360, max: 370, step: 365 },
 ];
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
 
 function toLocalDate(date: string | Date): Date {
   if (date instanceof Date) {
@@ -207,11 +137,6 @@ function normaliseCategoryKey(name: string): string {
   return name.trim().toLowerCase();
 }
 
-function getSankeyColor(categoryName: string): string {
-  const normalized = normaliseCategoryKey(categoryName);
-  return SANKEY_CATEGORY_COLOR_MAP[normalized] ?? DEFAULT_CATEGORY_COLOR;
-}
-
 function isWithinAmountTolerance(values: number[]): boolean {
   if (values.length < 2) {
     return false;
@@ -255,21 +180,6 @@ function getMonthBoundaries(currentDate: Date) {
   return { monthStart, monthEnd };
 }
 
-function getMonthlyExpenseTotals(transactions: TransactionLike[]): Map<string, number> {
-  const totals = new Map<string, number>();
-
-  for (const transaction of transactions) {
-    if (transaction.amount >= 0) {
-      continue;
-    }
-
-    const monthKey = getMonthKey(transaction.date);
-    totals.set(monthKey, (totals.get(monthKey) ?? 0) + Math.abs(transaction.amount));
-  }
-
-  return totals;
-}
-
 export function summarizeCashFlow(transactions: TransactionLike[]): CashFlowSummary {
   const income = sum(transactions.filter((transaction) => transaction.amount > 0).map((transaction) => transaction.amount));
   const expenses = sum(transactions.filter((transaction) => transaction.amount < 0).map((transaction) => Math.abs(transaction.amount)));
@@ -284,22 +194,6 @@ export function summarizeCashFlow(transactions: TransactionLike[]): CashFlowSumm
 
 export function calculateNetWorth(accounts: AccountLike[]): number {
   return sum(accounts.map((account) => account.balance));
-}
-
-export function calculateMonthlySavingsRate(income: number, expenses: number): number {
-  if (income <= 0) {
-    return 0;
-  }
-
-  return ((income - expenses) / income) * 100;
-}
-
-export function calculateCashRunway(totalBalance: number, monthlyExpenses: number): number | null {
-  if (monthlyExpenses <= 0) {
-    return null;
-  }
-
-  return Math.max(totalBalance, 0) / monthlyExpenses;
 }
 
 export function groupTransactionsByCategory(
@@ -332,253 +226,6 @@ export function groupTransactionsByCategory(
   }
 
   return [...groups.values()].sort((left, right) => right.spent - left.spent || right.total - left.total);
-}
-
-export function getSpendingConcentration(
-  transactions: TransactionLike[],
-  categories: CategoryLike[] = [],
-): SpendingConcentration {
-  const expenseGroups = groupTransactionsByCategory(
-    transactions.filter((transaction) => transaction.amount < 0),
-    categories,
-  );
-
-  const totalExpenses = sum(expenseGroups.map((group) => group.spent));
-  const topGroup = expenseGroups[0];
-
-  if (!topGroup || totalExpenses <= 0) {
-    return {
-      categoryName: null,
-      amount: 0,
-      share: 0,
-      level: 'low',
-    };
-  }
-
-  const share = (topGroup.spent / totalExpenses) * 100;
-
-  return {
-    categoryName: topGroup.categoryName,
-    amount: topGroup.spent,
-    share,
-    level: share > 50 ? 'high' : share >= 40 ? 'moderate' : 'low',
-  };
-}
-
-export function calculateHealthScore(input: HealthScoreInput): HealthScoreResult {
-  let score = 100;
-
-  if (input.savingsRate < 10) {
-    score -= 25;
-  } else if (input.savingsRate < 20) {
-    score -= 10;
-  } else if (input.savingsRate >= 35) {
-    score += 5;
-  }
-
-  if (input.cashRunwayMonths != null) {
-    if (input.cashRunwayMonths < 1) {
-      score -= 30;
-    } else if (input.cashRunwayMonths < 3) {
-      score -= 15;
-    }
-  }
-
-  if (input.spendingConcentrationShare > 50) {
-    score -= 20;
-  } else if (input.spendingConcentrationShare >= 40) {
-    score -= 10;
-  }
-
-  if (!input.hasIncome) {
-    score -= 15;
-  }
-
-  if (input.transactionCount < 5) {
-    score -= 10;
-  }
-
-  const finalScore = clamp(Math.round(score), 0, 100);
-
-  const band =
-    finalScore >= 80
-      ? 'Excellent'
-      : finalScore >= 60
-        ? 'Good'
-        : finalScore >= 40
-          ? 'Fair'
-          : 'Needs attention';
-
-  const tone =
-    band === 'Excellent'
-      ? 'positive'
-      : band === 'Good'
-        ? 'gold'
-        : band === 'Fair'
-          ? 'warning'
-          : 'negative';
-
-  const signals: HealthSignal[] = [
-    {
-      key: 'savings-rate',
-      label:
-        input.savingsRate >= 20
-          ? 'Savings rate ✓'
-          : input.savingsRate >= 10
-            ? 'Savings rate steady'
-            : 'Savings rate low',
-      tone: input.savingsRate >= 20 ? 'positive' : input.savingsRate >= 10 ? 'warning' : 'negative',
-    },
-    {
-      key: 'runway',
-      label:
-        input.cashRunwayMonths == null
-          ? 'Liquidity forming'
-          : input.cashRunwayMonths >= 3
-            ? 'Liquidity healthy'
-            : input.cashRunwayMonths >= 1
-              ? 'Liquidity limited'
-              : 'Liquidity low',
-      tone:
-        input.cashRunwayMonths == null
-          ? 'warning'
-          : input.cashRunwayMonths >= 3
-            ? 'positive'
-            : input.cashRunwayMonths >= 1
-              ? 'warning'
-              : 'negative',
-    },
-    {
-      key: 'concentration',
-      label:
-        input.spendingConcentrationShare > 50
-          ? 'Concentration risk'
-          : input.spendingConcentrationShare >= 40
-            ? 'Concentration watch'
-            : 'Spend mix balanced',
-      tone:
-        input.spendingConcentrationShare > 50
-          ? 'negative'
-          : input.spendingConcentrationShare >= 40
-            ? 'warning'
-            : 'positive',
-    },
-    {
-      key: 'income',
-      label: input.hasIncome ? 'Income recorded' : 'No income this month',
-      tone: input.hasIncome ? 'positive' : 'negative',
-    },
-    {
-      key: 'data-quality',
-      label: input.transactionCount >= 5 ? 'Data depth okay' : 'More data needed',
-      tone: input.transactionCount >= 5 ? 'positive' : 'warning',
-    },
-  ];
-
-  return {
-    score: finalScore,
-    band,
-    tone,
-    signals,
-  };
-}
-
-export function buildSankeyData(
-  transactions: TransactionLike[],
-  categories: CategoryLike[] = [],
-): SankeyData {
-  const summary = summarizeCashFlow(transactions);
-
-  if (transactions.length <= 1 || summary.expenses <= 0 || summary.income <= 0) {
-    return {
-      state: 'empty',
-      totalIncome: summary.income,
-      totalExpenses: summary.expenses,
-      netFlow: summary.netFlow,
-      nodes: [],
-      links: [],
-      insight: 'Add more transactions to see your money flow.',
-    };
-  }
-
-  const expenseGroups = groupTransactionsByCategory(
-    transactions.filter((transaction) => transaction.amount < 0),
-    categories,
-  ).filter((group) => group.spent > 0);
-
-  const savingsValue = summary.netFlow >= 0 ? summary.netFlow : Math.abs(summary.netFlow);
-  const savingsLabel = summary.netFlow >= 0 ? 'Savings' : 'Deficit';
-  const savingsType = summary.netFlow >= 0 ? 'savings' : 'deficit';
-  const savingsColor = summary.netFlow >= 0 ? getSankeyColor('savings') : getSankeyColor('deficit');
-
-  const nodes: SankeyNode[] = [
-    {
-      id: 'income',
-      label: 'Income',
-      value: summary.income,
-      color: 'var(--color-accent)',
-      type: 'source',
-    },
-    ...expenseGroups.map((group) => ({
-      id: `category-${normaliseCategoryKey(group.categoryName)}`,
-      label: group.categoryName,
-      value: group.spent,
-      color: getSankeyColor(group.categoryName),
-      type: 'expense' as const,
-    })),
-  ];
-
-  if (savingsValue > 0) {
-    nodes.push({
-      id: savingsType,
-      label: savingsLabel,
-      value: savingsValue,
-      color: savingsColor,
-      type: savingsType,
-    });
-  }
-
-  const links: SankeyLink[] = [
-    ...expenseGroups.map((group) => ({
-      id: `income-${normaliseCategoryKey(group.categoryName)}`,
-      source: 'income',
-      target: `category-${normaliseCategoryKey(group.categoryName)}`,
-      value: group.spent,
-      color: getSankeyColor(group.categoryName),
-      percentageOfIncome: summary.income > 0 ? (group.spent / summary.income) * 100 : 0,
-    })),
-  ];
-
-  if (savingsValue > 0) {
-    links.push({
-      id: `income-${savingsType}`,
-      source: 'income',
-      target: savingsType,
-      value: savingsValue,
-      color: savingsColor,
-      percentageOfIncome: summary.income > 0 ? (savingsValue / summary.income) * 100 : 0,
-    });
-  }
-
-  const concentration = getSpendingConcentration(transactions, categories);
-  const savingsRate = calculateMonthlySavingsRate(summary.income, summary.expenses);
-
-  const insight =
-    concentration.share > 50 && concentration.categoryName
-      ? `${Math.round(concentration.share)}% of your income went to ${concentration.categoryName} this month. That's a concentration risk.`
-      : summary.netFlow > 0
-        ? `You kept ${savingsRate.toFixed(1)}% of your income. That's a strong savings pace.`
-        : `Spending ran ${Math.abs(summary.netFlow).toFixed(2)} beyond income this month. Watch for a deficit pattern.`;
-
-  return {
-    state: 'ready',
-    totalIncome: summary.income,
-    totalExpenses: summary.expenses,
-    netFlow: summary.netFlow,
-    nodes,
-    links,
-    insight,
-  };
 }
 
 export function detectRecurring(transactions: TransactionLike[]): RecurringPattern[] {
@@ -718,31 +365,5 @@ export function forecastMonthEnd(
     projectedVariable,
     projectedTotalSpend,
     projectedNetFlow,
-  };
-}
-
-export function calculateTrailingAverageMonthlySpend(
-  transactions: TransactionLike[],
-  monthsToInclude = 3,
-  currentDate: Date = new Date(),
-): { average: number; monthCount: number } {
-  const monthlyTotals = getMonthlyExpenseTotals(transactions);
-  const totals: number[] = [];
-
-  for (let offset = 0; offset < monthsToInclude; offset += 1) {
-    const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - offset, 1);
-    const total = monthlyTotals.get(getMonthKey(date));
-    if (total != null && total > 0) {
-      totals.push(total);
-    }
-  }
-
-  if (totals.length === 0) {
-    return { average: 0, monthCount: 0 };
-  }
-
-  return {
-    average: sum(totals) / totals.length,
-    monthCount: totals.length,
   };
 }

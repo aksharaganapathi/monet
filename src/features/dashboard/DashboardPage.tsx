@@ -119,6 +119,7 @@ export function DashboardPage({
   const { transactions, hasLoaded: transactionsLoaded, fetchTransactions } = useTransactionStore();
   const { categories, fetchCategories } = useCategoryStore();
   const { selectedMonth, setActivePage } = useUIStore();
+  const currentMonthKey = toMonthKey(selectedMonth.year, selectedMonth.month);
   const [aiSummary, setAiSummary] = useState('');
   const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
@@ -128,6 +129,19 @@ export function DashboardPage({
     void fetchCategories();
     void fetchNetWorthTrend();
   }, [accountsLoaded, fetchAccounts, fetchCategories, fetchNetWorthTrend, fetchTransactions, transactionsLoaded]);
+
+  const selectedMonthStoryRevision = useMemo(
+    () =>
+      transactions
+        .filter((transaction) => transaction.date.startsWith(currentMonthKey))
+        .map(
+          (transaction) =>
+            `${transaction.id}:${transaction.amount}:${transaction.category_id}:${transaction.account_id}:${transaction.date}:${transaction.note ?? ''}`,
+        )
+        .sort()
+        .join('|'),
+    [currentMonthKey, transactions],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -159,10 +173,9 @@ export function DashboardPage({
     return () => {
       cancelled = true;
     };
-  }, [aiEnabled, selectedMonth.month, selectedMonth.year]);
+  }, [aiEnabled, selectedMonth.month, selectedMonth.year, selectedMonthStoryRevision]);
 
   const netWorth = calculateNetWorth(accounts);
-  const currentMonthKey = toMonthKey(selectedMonth.year, selectedMonth.month);
   const previousMonthDate = new Date(selectedMonth.year, selectedMonth.month - 2, 1);
   const previousMonthKey = toMonthKey(previousMonthDate.getFullYear(), previousMonthDate.getMonth() + 1);
   const selectedMonthEnd = getMonthEndIso(selectedMonth.year, selectedMonth.month);
@@ -217,7 +230,7 @@ export function DashboardPage({
     const totalSpent = expenseGroups.reduce((sum, group) => sum + group.spent, 0);
     const topCategories = expenseGroups.slice(0, 4).map((group, index) => ({
       ...group,
-      color: ['#13895e', '#dd6b2f', '#3e7cf0', '#8f65d6'][index] || '#95a0ae',
+      color: ['#13895e', '#b48530', '#3e7cf0', '#8f65d6'][index] || '#95a0ae',
       share: totalSpent > 0 ? (group.spent / totalSpent) * 100 : 0,
     }));
 
@@ -305,33 +318,33 @@ export function DashboardPage({
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-4">
-              <div className="rounded-2xl border border-border bg-white px-4 py-4">
+              <div className="min-w-0 rounded-2xl border border-border bg-white px-4 py-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
                   Accounts
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-text-primary numeric-display">{accounts.length}</p>
+                <p className="mt-2 truncate text-xl font-semibold text-text-primary numeric-display">{accounts.length}</p>
               </div>
-              <div className="rounded-2xl border border-border bg-white px-4 py-4">
+              <div className="min-w-0 rounded-2xl border border-border bg-white px-4 py-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
                   Net flow
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-text-primary numeric-display">
+                <p className="mt-2 truncate text-xl font-semibold text-text-primary numeric-display">
                   {formatCurrency(dashboardData.thisMonthSummary.netFlow)}
                 </p>
               </div>
-              <div className="rounded-2xl border border-border bg-white px-4 py-4">
+              <div className="min-w-0 rounded-2xl border border-border bg-white px-4 py-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
                   Transactions
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-text-primary numeric-display">
+                <p className="mt-2 truncate text-xl font-semibold text-text-primary numeric-display">
                   {dashboardData.transactionCount}
                 </p>
               </div>
-              <div className="rounded-2xl border border-border bg-white px-4 py-4">
+              <div className="min-w-0 rounded-2xl border border-border bg-white px-4 py-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
                   Recurring
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-text-primary numeric-display">
+                <p className="mt-2 truncate text-xl font-semibold text-text-primary numeric-display">
                   {formatCurrency(dashboardData.recurringExpenseTotal)}
                 </p>
               </div>

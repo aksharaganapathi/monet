@@ -1,10 +1,22 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, KeyboardEvent, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Fingerprint, KeyRound, Save, ShieldCheck, Sparkles, UserRound } from 'lucide-react';
+import {
+  Fingerprint,
+  KeyRound,
+  Link2,
+  Mail,
+  Plus,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  UserRound,
+  X,
+} from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { authRepository } from '../../lib/repositories/authRepository';
+import { settingsRepository } from '../../lib/repositories/settingsRepository';
 import { normalizeAuthError } from '../../lib/authErrors';
 import type { SetupStatus } from '../../lib/types';
 
@@ -17,6 +29,54 @@ const item = {
   hidden: { opacity: 0, y: 8 },
   show: { opacity: 1, y: 0 },
 };
+
+function getUnknownErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  if (error && typeof error === 'object') {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string' && maybeMessage.trim()) {
+      return maybeMessage;
+    }
+
+    const serialized = String(error);
+    if (serialized && serialized !== '[object Object]') {
+      return serialized;
+    }
+  }
+
+  return fallback;
+}
+
+function normalizeTrustedSender(value: string): string | null {
+  const lowered = value.trim().toLowerCase();
+  if (!lowered) {
+    return null;
+  }
+
+  const emailMatch = lowered.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
+  if (emailMatch?.[0]) {
+    return emailMatch[0];
+  }
+
+  const normalizedDomain = lowered
+    .replace(/^@+/, '')
+    .replace(/^https?:\/\//, '')
+    .split('/')[0]
+    .replace(/\.$/, '');
+
+  if (/^[a-z0-9.-]+\.[a-z]{2,}$/.test(normalizedDomain)) {
+    return normalizedDomain;
+  }
+
+  return null;
+}
 
 export function SettingsPage({
   setupStatus,
@@ -50,6 +110,37 @@ export function SettingsPage({
   const [aiMessage, setAiMessage] = useState('');
   const [aiError, setAiError] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
+
+  // Sync domains & Google OAuth
+  const [syncDomains, setSyncDomains] = useState<string[]>([]);
+  const [newDomain, setNewDomain] = useState('');
+  const [syncMessage, setSyncMessage] = useState('');
+  const [syncError, setSyncError] = useState('');
+  const [googleConnectBusy, setGoogleConnectBusy] = useState(false);
+  const [syncActive, setSyncActive] = useState(false);
+  const [syncWorkerActive, setSyncWorkerActive] = useState(false);
+  const [connectedEmail, setConnectedEmail] = useState('');
+
+  // Load settings from encrypted DB on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const [domains, active, workerActive, email] = await Promise.all([
+          settingsRepository.getSyncDomains(),
+          settingsRepository.isSyncActive(),
+          settingsRepository.isSyncWorkerActive(),
+          settingsRepository.getGoogleConnectedEmail(),
+        ]);
+        setSyncDomains(domains);
+        setSyncActive(active);
+        setSyncWorkerActive(workerActive);
+        setConnectedEmail(email);
+      } catch {
+        // Settings not available yet (DB not open)
+      }
+    };
+    void loadSettings();
+  }, []);
 
   const saveName = async (event: FormEvent) => {
     event.preventDefault();
@@ -150,6 +241,72 @@ export function SettingsPage({
     }
   };
 
+  const addDomain = async () => {
+    setSyncError('');
+    const normalized = normalizeTrustedSender(newDomain);
+    if (!normalized) {
+      setSyncError('Enter a valid sender email or domain, such as alerts@bank.com or chase.com.');
+      return;
+    }
+    if (syncDomains.includes(normalized)) {
+      setNewDomain('');
+      return;
+    }
+
+    const previous = syncDomains;
+    const updated = [...syncDomains, normalized];
+    setSyncDomains(updated);
+    setNewDomain('');
+
+    try {
+      await settingsRepository.setSyncDomains(updated);
+    } catch (error) {
+      setSyncDomains(previous);
+      setSyncError(error instanceof Error ? error.message : 'Unable to save trusted senders.');
+    }
+  };
+
+  const removeDomain = async (domain: string) => {
+    setSyncError('');
+    const previous = syncDomains;
+    const updated = syncDomains.filter((d) => d !== domain);
+    setSyncDomains(updated);
+    try {
+      await settingsRepository.setSyncDomains(updated);
+    } catch (error) {
+      setSyncDomains(previous);
+      setSyncError(error instanceof Error ? error.message : 'Unable to update trusted senders.');
+    }
+  };
+
+  const handleDomainKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void addDomain();
+    }
+  };
+
+  const connectGoogle = async () => {
+    setGoogleConnectBusy(true);
+    setSyncError('');
+    setSyncMessage('');
+    try {
+      const message = await settingsRepository.connectGoogleAccount();
+      setSyncMessage(message);
+      setSyncActive(true);
+      const [email, workerActive] = await Promise.all([
+        settingsRepository.getGoogleConnectedEmail(),
+        settingsRepository.isSyncWorkerActive(),
+      ]);
+      setConnectedEmail(email);
+      setSyncWorkerActive(workerActive);
+    } catch (error) {
+      setSyncError(getUnknownErrorMessage(error, 'Unable to start Google connection flow.'));
+    } finally {
+      setGoogleConnectBusy(false);
+    }
+  };
+
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="flex h-full min-h-0 flex-col gap-4">
       <motion.div variants={item} className="flex items-center justify-between">
@@ -159,7 +316,7 @@ export function SettingsPage({
         </div>
       </motion.div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-12 gap-4">
+      <div className="grid min-h-0 flex-1 grid-cols-12 gap-4 overflow-y-auto pr-1">
         <motion.div variants={item} className="col-span-12 lg:col-span-4">
           <Card className="h-full rounded-[24px] p-5">
             <div className="flex items-center gap-3">
@@ -188,7 +345,7 @@ export function SettingsPage({
                 </p>
                 <p className="mt-1 text-xs leading-5 text-text-secondary">
                   {setupStatus?.biometricEnabled
-                    ? 'Biometric approval can unlock the protected key.'
+                    ? 'Note: For convenience, the database key is protected by your Windows OS session, meaning it can be decrypted by any process running as you without your fingerprint.'
                     : 'You can enable Windows Hello after setup if you want a faster unlock path.'}
                 </p>
               </div>
@@ -294,6 +451,7 @@ export function SettingsPage({
               </div>
             </Card>
 
+            {/* AI Insights toggle */}
             <Card className="col-span-12 rounded-[24px] p-5">
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -303,7 +461,7 @@ export function SettingsPage({
                   <div>
                     <h2 className="text-lg font-semibold text-text-primary">AI Insights</h2>
                     <p className="text-sm text-text-secondary">
-                      Monthly spending summaries powered by Groq. Financial data is sent to Groq's API only when enabled.
+                      Monthly spending summaries powered by your chosen AI provider. Financial data is sent only when enabled.
                     </p>
                   </div>
                 </div>
@@ -317,12 +475,122 @@ export function SettingsPage({
                     disabled={aiBusy}
                   />
                   <span className="text-sm font-medium text-text-primary">
-                    {aiEnabled ? 'AI summaries are on — spending data is sent to Groq.' : 'Enable AI-powered monthly summaries (opt-in)'}
+                    {aiEnabled ? 'AI summaries are on — spending data is sent to your provider.' : 'Enable AI-powered monthly summaries (opt-in)'}
                   </span>
                 </label>
 
                 {aiMessage && <p className="text-sm text-income">{aiMessage}</p>}
                 {aiError && <p className="text-sm text-expense">{aiError}</p>}
+              </div>
+            </Card>
+
+            {/* AI Provider Configuration */}
+            <Card className="col-span-12 rounded-[24px] p-5">
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold text-text-primary">AI Provider (Env-only)</h2>
+                <p className="text-sm text-text-secondary">
+                  API configuration is now loaded only from environment variables and is never persisted to the vault database.
+                </p>
+                <div className="rounded-2xl border border-white/60 bg-white/60 p-4 text-sm text-text-primary">
+                  <p className="font-semibold">Supported variables</p>
+                  <p className="mt-2">Use <span className="font-mono">MONET_AI_PROVIDER</span>, <span className="font-mono">MONET_AI_MODEL</span>, and <span className="font-mono">MONET_AI_API_KEY</span>.</p>
+                  <p className="mt-1">Groq legacy fallback remains supported via <span className="font-mono">GROQ_API_KEY</span> and <span className="font-mono">GROQ_MODEL</span>.</p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Email Sync */}
+            <Card className="col-span-12 rounded-[24px] p-5">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-income-subtle text-income">
+                    <Mail size={18} />
+                  </span>
+                  <div>
+                    <h2 className="text-lg font-semibold text-text-primary">Email Sync</h2>
+                    <p className="text-sm text-text-secondary">
+                      Seamlessly connect your Google account to import transaction emails.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    icon={<Link2 size={14} />}
+                    onClick={() => void connectGoogle()}
+                    disabled={googleConnectBusy}
+                  >
+                    {googleConnectBusy ? 'Opening Google Sign-In...' : 'Sign in with Google'}
+                  </Button>
+                  {syncActive && (
+                    <span className="rounded-full border border-income/30 bg-income-subtle px-3 py-1 text-xs font-semibold text-income">
+                      Syncing is active
+                    </span>
+                  )}
+                </div>
+
+                {syncActive && connectedEmail && (
+                  <p className="text-xs text-text-secondary">
+                    Connected account: <span className="font-semibold text-text-primary">{connectedEmail}</span>
+                  </p>
+                )}
+
+                {syncActive && (
+                  <p className="text-xs text-text-secondary">
+                    Background worker: <span className="font-semibold text-text-primary">{syncWorkerActive ? 'running' : 'not running'}</span>
+                  </p>
+                )}
+
+                <p className="text-xs text-text-secondary">
+                  Use <span className="font-semibold text-text-primary">Sync Inbox</span> in the Transactions page header to import queued items after connecting.
+                </p>
+
+                <p className="text-xs text-text-secondary">
+                  Google OAuth credentials are env-only: set <span className="font-mono">MONET_GOOGLE_CLIENT_ID</span> and <span className="font-mono">MONET_GOOGLE_CLIENT_SECRET</span> in your environment.
+                </p>
+
+                {/* Trusted senders list */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-text-secondary">
+                    Trusted email senders
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 rounded-xl border border-border bg-white px-3 py-2.5 text-sm text-text-primary outline-none transition-shadow placeholder:text-text-tertiary focus:ring-2 focus:ring-accent/20"
+                      placeholder="alerts@bank.com"
+                      value={newDomain}
+                      onChange={(e) => setNewDomain(e.target.value)}
+                      onKeyDown={handleDomainKeyDown}
+                    />
+                    <Button type="button" variant="secondary" icon={<Plus size={14} />} onClick={() => void addDomain()}>
+                      Add
+                    </Button>
+                  </div>
+                  {syncDomains.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {syncDomains.map((domain) => (
+                        <span
+                          key={domain}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-muted px-3 py-1.5 text-xs font-medium text-text-primary"
+                        >
+                          {domain}
+                          <button
+                            type="button"
+                            className="text-text-tertiary transition-colors hover:text-expense"
+                            onClick={() => void removeDomain(domain)}
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {syncMessage && <p className="text-sm text-income">{syncMessage}</p>}
+                {syncError && <p className="text-sm text-expense">{syncError}</p>}
               </div>
             </Card>
           </div>

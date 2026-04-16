@@ -31,6 +31,7 @@ Security is a first-class concern in Monet.
 - The vault auto-locks after 15 minutes of inactivity.
 - Biometric unlock is optional and currently geared toward the Windows desktop flow.
 - Biometric key material is protected locally using OS-level protection, and security-setting changes require password verification.
+- Email-sync ingestion uses an asymmetric boundary: Monet stores the private key in SQLCipher and exports only a public key for background scripts.
 
 If you are working on this repo, treat all locally generated app data as sensitive, even during development.
 
@@ -75,18 +76,50 @@ cargo check
 
 ## Optional AI Monthly Summary
 
-Monet includes a monthly summary widget on the dashboard. It is opt-in, and can use Groq when credentials are available. If AI is disabled or credentials are missing, Monet falls back to a deterministic local summary.
+Monet includes a monthly summary widget on the dashboard.
 
-To use the AI path, enable it in Settings first, then provide credentials:
+- AI summaries are opt-in.
+- Provider/model/key are resolved from environment variables only.
+- If AI is disabled or key/model configuration is missing, Monet falls back to a deterministic local summary.
 
-Set these environment variables:
+Supported env vars:
+
+- `MONET_AI_PROVIDER`
+- `MONET_AI_MODEL`
+- `MONET_AI_API_KEY`
+
+Groq legacy fallback remains supported via `GROQ_API_KEY` and `GROQ_MODEL`.
+
+## Email Sync (Google OAuth)
+
+Monet supports native Google OAuth from the desktop app.
+
+1. Open Monet and unlock the vault.
+2. Go to `Settings -> Email Sync`.
+3. Click `Sign in with Google` and complete consent in your browser.
+
+Credential resolution order:
+
+1. `MONET_GOOGLE_CLIENT_ID` / `MONET_GOOGLE_CLIENT_SECRET`
+2. local OAuth file (`client_secret_*.json` or `credentials.json`) in project root
+
+- In debug runs, runtime environment values are read (including `.env` when present).
+- In packaged builds, compile-time environment values are used as fallback.
+
+### Background Sync Script (Encrypted Queue)
+
+For local testing, use `sync_script.py` to pull Gmail messages and write encrypted `.enc` queue files.
 
 ```bash
-set GROQ_API_KEY=your_groq_api_key
-set GROQ_MODEL=llama-3.1-8b-instant
+pip install google-auth google-auth-oauthlib google-api-python-client cryptography
+python sync_script.py --watch --interval 30
 ```
 
-You can also store them in a local `.env` file at the project root.
+Key points:
+
+- The script only uses Monet's **public key** (`monet_sync.pub`) to encrypt payloads.
+- Monet decrypts with the **private key** stored in SQLCipher and imports queue files.
+- Trusted domain filtering is enforced during Monet import using sender rules from `Settings -> Email Sync`.
 
 ## Notes For Developers
 

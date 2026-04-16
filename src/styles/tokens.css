@@ -32,10 +32,10 @@
   --color-text-tertiary: #7a8393;
   --color-text-inverse: #ffffff;
 
-  --color-accent: #dd6b2f;
-  --color-accent-hover: #c25a22;
-  --color-accent-subtle: #fff0e7;
-  --color-accent-light: #ffe2d1;
+  --color-accent: #b48530;
+  --color-accent-hover: #9c7126;
+  --color-accent-subtle: #fbf7ee;
+  --color-accent-light: #f3e6cd;
 
   --color-income: #13895e;
   --color-income-subtle: #e8f7ef;
@@ -140,7 +140,7 @@
     overflow: hidden;
     position: relative;
     background:
-      radial-gradient(circle at 10% 10%, rgba(221, 107, 47, 0.12), transparent 26%),
+      radial-gradient(circle at 10% 10%, rgba(180, 133, 48, 0.12), transparent 26%),
       radial-gradient(circle at 88% 12%, rgba(19, 137, 94, 0.08), transparent 24%),
       linear-gradient(180deg, #fbf9f6 0%, #f0ece6 100%);
     background-color: var(--color-surface);
@@ -153,7 +153,7 @@
     pointer-events: none;
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0) 34%),
-      linear-gradient(90deg, rgba(221, 107, 47, 0.04) 0%, rgba(221, 107, 47, 0) 40%);
+      linear-gradient(90deg, rgba(180, 133, 48, 0.04) 0%, rgba(180, 133, 48, 0) 40%);
     z-index: -2;
   }
 
