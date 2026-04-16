@@ -271,9 +271,6 @@ export function TransactionsPage() {
           <Button variant="secondary" onClick={() => setActivePage('categories')}>
             Manage Categories
           </Button>
-          <Button icon={<Plus size={16} />} onClick={openTransactionForm}>
-            Add Transaction
-          </Button>
         </div>
       </motion.div>
 

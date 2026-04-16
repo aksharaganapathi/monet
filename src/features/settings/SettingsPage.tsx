@@ -484,21 +484,6 @@ export function SettingsPage({
               </div>
             </Card>
 
-            {/* AI Provider Configuration */}
-            <Card className="col-span-12 rounded-[24px] p-5">
-              <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-text-primary">AI Provider (Env-only)</h2>
-                <p className="text-sm text-text-secondary">
-                  API configuration is now loaded only from environment variables and is never persisted to the vault database.
-                </p>
-                <div className="rounded-2xl border border-white/60 bg-white/60 p-4 text-sm text-text-primary">
-                  <p className="font-semibold">Supported variables</p>
-                  <p className="mt-2">Use <span className="font-mono">MONET_AI_PROVIDER</span>, <span className="font-mono">MONET_AI_MODEL</span>, and <span className="font-mono">MONET_AI_API_KEY</span>.</p>
-                  <p className="mt-1">Groq legacy fallback remains supported via <span className="font-mono">GROQ_API_KEY</span> and <span className="font-mono">GROQ_MODEL</span>.</p>
-                </div>
-              </div>
-            </Card>
-
             {/* Email Sync */}
             <Card className="col-span-12 rounded-[24px] p-5">
               <div className="space-y-4">
@@ -536,20 +521,6 @@ export function SettingsPage({
                     Connected account: <span className="font-semibold text-text-primary">{connectedEmail}</span>
                   </p>
                 )}
-
-                {syncActive && (
-                  <p className="text-xs text-text-secondary">
-                    Background worker: <span className="font-semibold text-text-primary">{syncWorkerActive ? 'running' : 'not running'}</span>
-                  </p>
-                )}
-
-                <p className="text-xs text-text-secondary">
-                  Use <span className="font-semibold text-text-primary">Sync Inbox</span> in the Transactions page header to import queued items after connecting.
-                </p>
-
-                <p className="text-xs text-text-secondary">
-                  Google OAuth credentials are env-only: set <span className="font-mono">MONET_GOOGLE_CLIENT_ID</span> and <span className="font-mono">MONET_GOOGLE_CLIENT_SECRET</span> in your environment.
-                </p>
 
                 {/* Trusted senders list */}
                 <div>
