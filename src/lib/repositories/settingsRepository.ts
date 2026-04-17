@@ -18,32 +18,6 @@ export const settingsRepository = {
     return rows;
   },
 
-  // --- AI Provider shortcuts ---
-
-  async getAiProvider(): Promise<string> {
-    return (await this.get('ai_provider')) ?? 'groq';
-  },
-
-  async setAiProvider(provider: string): Promise<void> {
-    return this.put('ai_provider', provider);
-  },
-
-  async getAiModel(): Promise<string> {
-    return (await this.get('ai_model')) ?? '';
-  },
-
-  async setAiModel(model: string): Promise<void> {
-    return this.put('ai_model', model);
-  },
-
-  async getAiApiKey(): Promise<string> {
-    return (await this.get('ai_api_key')) ?? '';
-  },
-
-  async setAiApiKey(key: string): Promise<void> {
-    return this.put('ai_api_key', key);
-  },
-
   // --- Sync domains ---
 
   async getSyncDomains(): Promise<string[]> {

@@ -41,9 +41,9 @@ pub struct AppState {
     pub auth: Mutex<Option<Webauthn>>,
     pub auth_state: Mutex<Option<PasskeyAuthentication>>,
     pub reg_state: Mutex<Option<PasskeyRegistration>>,
-    /// Epoch-seconds timestamp of the most recent successful password
+    /// Epoch-seconds timestamp of the most recent successful sensitive
     /// verification, used to gate sensitive settings changes.
-    pub last_password_verify_epoch_secs: std::sync::atomic::AtomicU64,
+    pub last_sensitive_verify_epoch_secs: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,13 +195,13 @@ fn now_epoch_secs() -> u64 {
 
 fn mark_recent_password_verification(state: &State<AppState>) {
     state
-        .last_password_verify_epoch_secs
+    .last_sensitive_verify_epoch_secs
         .store(now_epoch_secs(), Ordering::SeqCst);
 }
 
 fn has_recent_password_verification(state: &State<AppState>) -> bool {
     let last = state
-        .last_password_verify_epoch_secs
+        .last_sensitive_verify_epoch_secs
         .load(Ordering::SeqCst);
     if last == 0 {
         return false;
@@ -317,6 +317,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             date DATE NOT NULL,
             note TEXT,
             merchant TEXT,
+            external_id TEXT,
             flagged INTEGER NOT NULL DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (category_id) REFERENCES categories (id),
@@ -386,6 +387,15 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         "ALTER TABLE transactions ADD COLUMN merchant TEXT",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE transactions ADD COLUMN external_id TEXT",
+        [],
+    );
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_external_id ON transactions(external_id) WHERE external_id IS NOT NULL",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
     let _ = conn.execute(
         "ALTER TABLE budgets ADD COLUMN amount REAL",
         [],
@@ -472,10 +482,8 @@ fn db_is_open(state: &State<AppState>) -> bool {
     state.db.lock().unwrap().is_some()
 }
 
-fn bootstrap_sync_after_unlock(state: &State<AppState>, app: &AppHandle) {
-    if let Err(err) = db_cmds::bootstrap_sync_on_unlock(state, app) {
-        eprintln!("[monet] warn: sync bootstrap failed: {}", err);
-    }
+fn bootstrap_sync_after_unlock(_state: &State<AppState>, _app: &AppHandle) {
+    // Automatic sync bootstrap is intentionally disabled in this build.
 }
 
 fn create_fresh_salt() -> Result<[u8; SALT_LEN], String> {
@@ -882,7 +890,7 @@ pub(crate) fn lock_database_internal(state: &State<AppState>) {
     let mut lock = state.db.lock().unwrap_or_else(|e| e.into_inner());
     *lock = None;
     state
-        .last_password_verify_epoch_secs
+        .last_sensitive_verify_epoch_secs
         .store(0, Ordering::SeqCst);
 }
 
@@ -920,7 +928,7 @@ pub fn run() {
             auth: Mutex::new(Some(webauthn)),
             auth_state: Mutex::new(None),
             reg_state: Mutex::new(None),
-            last_password_verify_epoch_secs: std::sync::atomic::AtomicU64::new(0),
+            last_sensitive_verify_epoch_secs: std::sync::atomic::AtomicU64::new(0),
         })
         .invoke_handler(tauri::generate_handler![
             auth::start_register,
@@ -928,12 +936,12 @@ pub fn run() {
             auth::start_auth,
             auth::finish_auth_and_init,
             setup_cmds::get_setup_status,
-            setup_cmds::complete_onboarding,
-            setup_cmds::unlock_with_password,
+            setup_cmds::complete_setup,
+            setup_cmds::unlock_vault,
             setup_cmds::update_user_name,
-            setup_cmds::change_password,
+            setup_cmds::change_vault_secret,
             setup_cmds::set_biometric_enabled,
-            setup_cmds::verify_password,
+            setup_cmds::verify_unlock_secret,
             setup_cmds::reset_biometric_registration,
             setup_cmds::lock_database,
             db_cmds::get_accounts,

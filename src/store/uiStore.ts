@@ -18,12 +18,14 @@ interface UIState {
   isTransactionFormOpen: boolean;
   editingTransactionId: number | null;
   isSidebarCollapsed: boolean;
+  isPrivateMode: boolean;
   transactionFilters: TransactionFilterState;
   setActivePage: (page: Page) => void;
   setSelectedMonth: (month: MonthSelection) => void;
   jumpToCurrentMonth: () => void;
   stepSelectedMonth: (direction: -1 | 1) => void;
   toggleCommandPalette: () => void;
+  togglePrivateMode: () => void;
   openTransactionForm: () => void;
   openTransactionFormForEdit: (id: number) => void;
   closeTransactionForm: () => void;
@@ -63,6 +65,7 @@ export const useUIStore = create<UIState>((set) => ({
   isTransactionFormOpen: false,
   editingTransactionId: null,
   isSidebarCollapsed: false,
+  isPrivateMode: false,
   transactionFilters: getDefaultTransactionFilters(),
 
   setActivePage: (page) => set({ activePage: page }),
@@ -71,6 +74,7 @@ export const useUIStore = create<UIState>((set) => ({
   stepSelectedMonth: (direction) =>
     set((state) => ({ selectedMonth: shiftMonth(state.selectedMonth, direction) })),
   toggleCommandPalette: () => set((state) => ({ isCommandPaletteOpen: !state.isCommandPaletteOpen })),
+  togglePrivateMode: () => set((state) => ({ isPrivateMode: !state.isPrivateMode })),
   openTransactionForm: () => set({ isTransactionFormOpen: true, editingTransactionId: null }),
   openTransactionFormForEdit: (id) => set({ isTransactionFormOpen: true, editingTransactionId: id }),
   closeTransactionForm: () => set({ isTransactionFormOpen: false, editingTransactionId: null }),

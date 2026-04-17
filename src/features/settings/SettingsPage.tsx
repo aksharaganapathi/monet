@@ -271,9 +271,7 @@ export function SettingsPage({
       const message = await settingsRepository.connectGoogleAccount();
       setSyncMessage(message);
       setSyncActive(true);
-      const [email] = await Promise.all([
-        settingsRepository.getGoogleConnectedEmail(),
-      ]);
+      const email = await settingsRepository.getGoogleConnectedEmail();
       setConnectedEmail(email);
     } catch (error) {
       setSyncError(getUnknownErrorMessage(error, 'Unable to start Google connection flow.'));
@@ -320,7 +318,7 @@ export function SettingsPage({
                 </p>
                 <p className="mt-1 text-xs leading-5 text-text-secondary">
                   {setupStatus?.biometricEnabled
-                    ? 'Note: For convenience, the database key is protected by your Windows OS session, meaning it can be decrypted by any process running as you without your fingerprint.'
+                    ? ''
                     : 'You can enable Windows Hello after setup if you want a faster unlock path.'}
                 </p>
               </div>

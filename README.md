@@ -79,16 +79,13 @@ cargo check
 Monet includes a monthly summary widget on the dashboard.
 
 - AI summaries are opt-in.
-- Provider/model/key are resolved from environment variables only.
+- AI key/model are resolved from environment variables.
 - If AI is disabled or key/model configuration is missing, Monet falls back to a deterministic local summary.
 
 Supported env vars:
 
-- `MONET_AI_PROVIDER`
-- `MONET_AI_MODEL`
-- `MONET_AI_API_KEY`
-
-Groq legacy fallback remains supported via `GROQ_API_KEY` and `GROQ_MODEL`.
+- `GROQ_API_KEY`
+- `GROQ_MODEL` (optional, defaults internally when omitted)
 
 ## Email Sync (Google OAuth)
 

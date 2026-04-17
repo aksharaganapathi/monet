@@ -14,21 +14,15 @@ import { Button } from './components/ui/Button';
 import { Input } from './components/ui/Input';
 import { Card } from './components/ui/Card';
 import { authRepository } from './lib/repositories/authRepository';
-import { settingsRepository } from './lib/repositories/settingsRepository';
 import { normalizeAuthError } from './lib/authErrors';
 import type { SetupStatus } from './lib/types';
 import { LockKeyhole, ShieldCheck, ScanFace, UserRound } from 'lucide-react';
-import { useAccountStore } from './store/accountStore';
-import { useTransactionStore } from './store/transactionStore';
-import { useCategoryStore } from './store/categoryStore';
-import { useBudgetStore } from './store/budgetStore';
 import monetLogo from './monet_logo.svg';
 
 type AuthView = 'booting' | 'onboarding' | 'locked' | 'unlocked';
 
 /** Lock the vault after this many milliseconds of inactivity (M-5). */
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-const SYNC_POLL_INTERVAL_MS = 30 * 1000; // 30 seconds (testing)
 
 function toBase64Url(data: Uint8Array): string {
   const base64 = btoa(String.fromCharCode(...data));
@@ -333,7 +327,7 @@ function LockScreen({
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-text-secondary">Biometric unlock</p>
                 <h2 className="text-2xl font-semibold text-text-primary">Use Windows Hello</h2>
                 <p className="text-sm leading-6 text-text-secondary">
-                  Approve the prompt and Monet will use your protected unlock secret instead of asking for the password first.
+                  Use your biometrics to unlock your vault.
                 </p>
               </div>
 
@@ -393,12 +387,6 @@ function App() {
   const [userName, setUserName] = useState<string | null>(null);
   const [usePasswordUnlock, setUsePasswordUnlock] = useState(false);
 
-  const fetchAccounts = useAccountStore((state) => state.fetchAccounts);
-  const fetchNetWorthTrend = useAccountStore((state) => state.fetchNetWorthTrend);
-  const fetchTransactions = useTransactionStore((state) => state.fetchTransactions);
-  const fetchCategories = useCategoryStore((state) => state.fetchCategories);
-  const fetchBudgets = useBudgetStore((state) => state.fetchBudgets);
-
   const isTauriRuntime = typeof window !== 'undefined' && Boolean((window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
   const isWindowsRuntime = typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent);
 
@@ -427,31 +415,6 @@ function App() {
     setUsePasswordUnlock(true);
   }, [isTauriRuntime]);
 
-  const refreshAfterSyncImport = useCallback(async () => {
-    await Promise.all([
-      fetchTransactions(true),
-      fetchAccounts(true),
-      fetchNetWorthTrend(),
-      fetchCategories(),
-      fetchBudgets(true),
-    ]);
-  }, [fetchAccounts, fetchBudgets, fetchCategories, fetchNetWorthTrend, fetchTransactions]);
-
-  const runBackgroundSyncImport = useCallback(async () => {
-    if (!isTauriRuntime || authViewRef.current !== 'unlocked') {
-      return;
-    }
-
-    try {
-      const result = await settingsRepository.importSyncQueue();
-      if (result.imported > 0) {
-        await refreshAfterSyncImport();
-      }
-    } catch {
-      // best-effort background sync
-    }
-  }, [isTauriRuntime, refreshAfterSyncImport]);
-
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(lockVault, IDLE_TIMEOUT_MS);
@@ -472,23 +435,6 @@ function App() {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
   }, [isTauriRuntime, authView, resetIdleTimer]);
-
-  useEffect(() => {
-    if (!isTauriRuntime || authView !== 'unlocked') {
-      return;
-    }
-
-    // Trigger one sync immediately on unlock before entering the poll loop.
-    void runBackgroundSyncImport();
-
-    const intervalId = setInterval(() => {
-      void runBackgroundSyncImport();
-    }, SYNC_POLL_INTERVAL_MS);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [authView, isTauriRuntime, runBackgroundSyncImport]);
 
   useEffect(() => {
     const boot = async () => {

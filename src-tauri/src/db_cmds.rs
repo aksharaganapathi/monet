@@ -272,11 +272,8 @@ fn db_setting(app: &AppHandle, key: &str) -> Option<String> {
     .ok()
 }
 
-fn resolve_ai_api_key(app: &AppHandle) -> Option<String> {
-    db_setting(app, "ai_api_key")
-        .or_else(|| env_var_or_compile("MONET_GROQ_API_KEY", option_env!("MONET_GROQ_API_KEY")))
-        .or_else(|| env_var_or_compile("GROQ_API_KEY", option_env!("GROQ_API_KEY")))
-        .or_else(|| env_var_or_compile("MONET_AI_API_KEY", option_env!("MONET_AI_API_KEY")))
+fn resolve_ai_api_key() -> Option<String> {
+    env_var_or_compile("GROQ_API_KEY", option_env!("GROQ_API_KEY"))
 }
 
 fn resolve_google_client_id(app: &AppHandle) -> Option<String> {
@@ -406,6 +403,37 @@ fn resolve_sync_script_path() -> Option<PathBuf> {
     candidates.into_iter().find(|candidate| candidate.exists())
 }
 
+fn is_sync_worker_process_running(config_path: &Path) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let escaped_config = config_path.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "$cfg = '{}'; $proc = Get-CimInstance Win32_Process | Where-Object {{ ($_.Name -like 'python*' -or $_.Name -eq 'py.exe') -and $_.CommandLine -like '*sync_script.py*' -and $_.CommandLine -like ('*' + $cfg + '*') }} | Select-Object -First 1; if ($proc) {{ '1' }}",
+            escaped_config
+        );
+
+        return Command::new("powershell")
+            .args(["-NoProfile", "-Command", &script])
+            .output()
+            .ok()
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim() == "1")
+            .unwrap_or(false);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = config_path;
+        false
+    }
+}
+
+fn is_sync_worker_running_for_app(app: &AppHandle) -> bool {
+    match crate::app_data_dir(app) {
+        Ok(app_dir) => is_sync_worker_process_running(&app_dir.join("sync_config.json")),
+        Err(_) => false,
+    }
+}
+
 fn write_trusted_senders_file(app: &AppHandle, trusted_entries: &[String]) -> Result<PathBuf, String> {
     let app_dir = crate::app_data_dir(app)?;
     std::fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
@@ -472,9 +500,14 @@ fn launch_sync_worker(
     let app_dir = crate::app_data_dir(app)?;
     let queue_dir = app_dir.join("sync_queue");
     let log_path = app_dir.join("sync_worker.log");
+    let config_path = app_dir.join("sync_config.json");
+
+    if is_sync_worker_process_running(&config_path) {
+        return Ok(log_path);
+    }
+
     std::fs::create_dir_all(&queue_dir).map_err(|e| e.to_string())?;
     let token_path = app_dir.join("token.json");
-    let config_path = app_dir.join("sync_config.json");
 
     let mut config = serde_json::json!({
         "public_key": public_key_path.to_string_lossy(),
@@ -535,10 +568,6 @@ fn write_google_token_cache(
     let json = serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?;
     std::fs::write(&token_path, json).map_err(|e| e.to_string())?;
     Ok(token_path)
-}
-
-fn is_env_only_setting_key(_key: &str) -> bool {
-    false
 }
 
 async fn fetch_google_profile_email(access_token: &str) -> Option<String> {
@@ -646,20 +675,18 @@ pub async fn summarize_month_story(state: State<'_, AppState>, app: AppHandle, y
 
     let fallback = fallback_month_story(income, expense, &categories);
 
+    if let Some(summary) = cached_summary {
+        return Ok(summary);
+    }
 
     let model = db_setting(&app, "ai_model")
-        .or_else(|| env_var_or_compile("MONET_GROQ_MODEL", option_env!("MONET_GROQ_MODEL")))
         .or_else(|| env_var_or_compile("GROQ_MODEL", option_env!("GROQ_MODEL")))
         .unwrap_or_else(|| "llama-3.1-8b-instant".to_string());
-    let api_key = resolve_ai_api_key(&app);
+    let api_key = resolve_ai_api_key();
 
     let Some(api_key) = api_key else {
         return Ok(fallback);
     };
-
-    if let Some(summary) = cached_summary {
-        return Ok(summary);
-    }
 
     let net_flow = income - expense;
     let savings_rate = if income > 0.0 { (net_flow / income) * 100.0 } else { 0.0 };
@@ -704,6 +731,7 @@ pub async fn summarize_month_story(state: State<'_, AppState>, app: AppHandle, y
 
     let response = match request
         .header("Content-Type", "application/json")
+        .header("User-Agent", "Monet/1.0")
         .json(&body_json)
         .send()
         .await
@@ -765,10 +793,6 @@ fn extract_ai_response(body: &Value) -> Option<String> {
 
 #[command]
 pub fn get_setting(state: State<AppState>, key: String) -> Result<Option<String>, String> {
-    if is_env_only_setting_key(&key) {
-        return Ok(None);
-    }
-
     let mut lock = state.db.lock().unwrap();
     let conn = lock.as_mut().ok_or("Database not initialized")?;
     let value: Option<String> = conn
@@ -783,19 +807,34 @@ pub fn get_setting(state: State<AppState>, key: String) -> Result<Option<String>
 }
 
 #[command]
-pub fn put_setting(state: State<AppState>, key: String, value: String) -> Result<(), String> {
-    if is_env_only_setting_key(&key) {
-        return Err("This setting is env-only and cannot be stored in the database.".to_string());
+pub fn put_setting(state: State<AppState>, app: AppHandle, key: String, value: String) -> Result<(), String> {
+    let trusted_entries_override = if key == "sync_domains" {
+        let parsed: Vec<String> = serde_json::from_str(&value)
+            .map_err(|_| "sync_domains must be a JSON array of trusted sender entries".to_string())?;
+        Some(
+            parsed
+                .into_iter()
+                .filter_map(|entry| normalize_sync_sender_entry(&entry))
+                .collect::<Vec<String>>(),
+        )
+    } else {
+        None
+    };
+
+    {
+        let mut lock = state.db.lock().unwrap();
+        let conn = lock.as_mut().ok_or("Database not initialized")?;
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
+            params![key, value],
+        )
+        .map_err(|e| e.to_string())?;
     }
 
-    let mut lock = state.db.lock().unwrap();
-    let conn = lock.as_mut().ok_or("Database not initialized")?;
-    conn.execute(
-        "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
-        params![key, value],
-    )
-    .map_err(|e| e.to_string())?;
+    if let Some(trusted_entries) = trusted_entries_override {
+        write_trusted_senders_file(&app, &trusted_entries)?;
+    }
 
     Ok(())
 }
@@ -814,7 +853,7 @@ pub fn delete_setting(state: State<AppState>, key: String) -> Result<(), String>
 pub fn get_all_settings(state: State<AppState>) -> Result<Vec<Value>, String> {
     select_query(
         &state,
-        "SELECT key, value FROM settings WHERE key NOT IN ('ai_provider', 'ai_model', 'ai_api_key', 'google_client_id', 'google_client_secret') ORDER BY key ASC",
+        "SELECT key, value FROM settings WHERE key NOT IN ('google_client_id', 'google_client_secret') ORDER BY key ASC",
         vec![],
     )
 }
@@ -1131,6 +1170,8 @@ fn decrypt_sync_blob(encrypted_blob_json: &str, private_key_pem: &str) -> Result
 }
 
 pub(crate) fn import_sync_queue_internal(state: &State<AppState>, app: &AppHandle) -> Result<u64, String> {
+    const MAX_QUEUE_FILES_PER_IMPORT: usize = 20;
+
     let mut sync_dirs: Vec<PathBuf> = vec![crate::app_data_dir(app)?.join("sync_queue")];
     if let Ok(cwd) = std::env::current_dir() {
         sync_dirs.push(cwd.join("sync_queue"));
@@ -1180,6 +1221,8 @@ pub(crate) fn import_sync_queue_internal(state: &State<AppState>, app: &AppHandl
 
     let mut imported_count = 0u64;
 
+    let mut processed_files = 0usize;
+
     for sync_dir in &sync_dirs {
         let mut files: Vec<_> = std::fs::read_dir(sync_dir)
             .map_err(|e| e.to_string())?
@@ -1195,6 +1238,10 @@ pub(crate) fn import_sync_queue_internal(state: &State<AppState>, app: &AppHandl
         files.sort_by_key(|entry| entry.file_name());
 
         for file_entry in &files {
+            if processed_files >= MAX_QUEUE_FILES_PER_IMPORT {
+                break;
+            }
+
             let file_path = file_entry.path();
 
             let encrypted_blob = match std::fs::read_to_string(&file_path) {
@@ -1273,8 +1320,23 @@ pub(crate) fn import_sync_queue_internal(state: &State<AppState>, app: &AppHandl
                     continue;
                 }
 
+                let mut has_legacy_sync_marker = false;
                 if let Some(sync_id) = external_id {
-                    let already_seen: Option<i64> = tx
+                    let already_seen_in_transactions: Option<i64> = tx
+                        .query_row(
+                            "SELECT 1 FROM transactions WHERE external_id = ?1 LIMIT 1",
+                            params![sync_id],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .map_err(|e| e.to_string())?;
+                    if already_seen_in_transactions.is_some() {
+                        continue;
+                    }
+
+                    // Legacy rows were deduped in sync_imports but had no external_id on transactions.
+                    // Keep that behavior without blocking re-import when the transaction was deleted.
+                    let already_seen_in_legacy_marker: Option<i64> = tx
                         .query_row(
                             "SELECT 1 FROM sync_imports WHERE external_id = ?1 LIMIT 1",
                             params![sync_id],
@@ -1282,9 +1344,7 @@ pub(crate) fn import_sync_queue_internal(state: &State<AppState>, app: &AppHandl
                         )
                         .optional()
                         .map_err(|e| e.to_string())?;
-                    if already_seen.is_some() {
-                        continue;
-                    }
+                    has_legacy_sync_marker = already_seen_in_legacy_marker.is_some();
                 }
 
                 let category_id: i64 = match tx
@@ -1325,11 +1385,42 @@ pub(crate) fn import_sync_queue_internal(state: &State<AppState>, app: &AppHandl
                     continue;
                 };
 
+                if has_legacy_sync_marker {
+                    let already_present_as_legacy_row: Option<i64> = tx
+                        .query_row(
+                            "SELECT 1 FROM transactions
+                             WHERE external_id IS NULL
+                               AND amount = ?1
+                               AND date = ?2
+                               AND account_id = ?3
+                               AND IFNULL(note, '') = IFNULL(?4, '')
+                               AND IFNULL(merchant, '') = IFNULL(?5, '')
+                             LIMIT 1",
+                            params![amount, date, account_id, note, merchant],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .map_err(|e| e.to_string())?;
+                    if already_present_as_legacy_row.is_some() {
+                        continue;
+                    }
+                }
+
                 tx.execute(
-                    "INSERT INTO transactions (amount, category_id, account_id, date, note, merchant) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![amount, category_id, account_id, date, note, merchant],
+                    "INSERT INTO transactions (amount, category_id, account_id, date, note, merchant, external_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![amount, category_id, account_id, date, note, merchant, external_id],
                 )
                 .map_err(|e| e.to_string())?;
+
+                let account_rows = tx
+                    .execute(
+                        "UPDATE accounts SET balance = balance + ?1, updated_at = datetime('now') WHERE id = ?2",
+                        params![amount, account_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                if account_rows == 0 {
+                    return Err("Account not found while importing synced transaction".to_string());
+                }
 
                 if let Some(sync_id) = external_id {
                     tx.execute(
@@ -1362,97 +1453,15 @@ pub(crate) fn import_sync_queue_internal(state: &State<AppState>, app: &AppHandl
             // intentionally skipped after validation), remove them to advance.
             let _ = std::fs::remove_file(&file_path);
             imported_count += file_imported;
+            processed_files += 1;
+        }
+
+        if processed_files >= MAX_QUEUE_FILES_PER_IMPORT {
+            break;
         }
     }
 
     Ok(imported_count)
-}
-
-pub(crate) fn bootstrap_sync_on_unlock(state: &State<AppState>, app: &AppHandle) -> Result<u64, String> {
-    let public_key_path = ensure_sync_keypair(state, app)?;
-    let mut worker_active = false;
-
-    let (sync_active, trusted_entries, access_token, refresh_token) = {
-        let mut lock = state.db.lock().unwrap();
-        let conn = lock.as_mut().ok_or("Database not initialized")?;
-
-        let trusted_entries = load_sync_trusted_entries(conn);
-        let sync_active: Option<String> = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'sync_active'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        let access_token: Option<String> = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'google_access_token'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        let refresh_token: Option<String> = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'google_refresh_token'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-
-        (sync_active.unwrap_or_default() == "1", trusted_entries, access_token, refresh_token)
-    };
-
-    if sync_active {
-        let file_fallback = read_google_oauth_credentials_from_file(app);
-        let client_id = resolve_google_client_id(app)
-            .or_else(|| file_fallback.as_ref().map(|(id, _)| id.clone()));
-        let client_secret = resolve_google_client_secret(app)
-            .or_else(|| file_fallback.map(|(_, secret)| secret));
-
-        if let (Some(access), Some(client_id), Some(client_secret)) = (access_token, client_id, client_secret) {
-            let _ = write_google_token_cache(
-                app,
-                &access,
-                refresh_token.as_deref(),
-                &client_id,
-                &client_secret,
-            );
-
-            let trusted_senders_path = write_trusted_senders_file(app, &trusted_entries)?;
-            let credentials_path = google_oauth_credentials_path_from_file(app);
-            let worker_launch = launch_sync_worker(
-                app,
-                &public_key_path,
-                &trusted_senders_path,
-                credentials_path.as_deref(),
-            );
-
-            if worker_launch.is_ok() {
-                worker_active = true;
-            }
-
-            if let Err(err) = worker_launch {
-                eprintln!("[monet] warn: background sync worker did not start on unlock: {}", err);
-            }
-        }
-    }
-
-    {
-        let mut lock = state.db.lock().unwrap();
-        let conn = lock.as_mut().ok_or("Database not initialized")?;
-        let active_value = if worker_active { "1" } else { "0" };
-        conn.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES ('sync_worker_active', ?1, datetime('now'))
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
-            params![active_value],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    import_sync_queue_internal(state, app)
 }
 
 #[command]
@@ -1479,10 +1488,18 @@ pub async fn connect_google_account(state: State<'_, AppState>, app: AppHandle) 
     let connected_email = fetch_google_profile_email(&tokens.access_token).await;
     let public_key_path = ensure_sync_keypair(&state, &app)?;
 
-    let trusted_entries = {
+    let (trusted_entries, worker_already_active) = {
         let mut lock = state.db.lock().unwrap();
         let conn = lock.as_mut().ok_or("Database not initialized")?;
         let trusted_entries = load_sync_trusted_entries(conn);
+        let sync_worker_active: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'sync_worker_active'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
         let tx = conn.transaction().map_err(|e| e.to_string())?;
 
         tx.execute(
@@ -1518,7 +1535,7 @@ pub async fn connect_google_account(state: State<'_, AppState>, app: AppHandle) 
         }
 
         tx.commit().map_err(|e| e.to_string())?;
-        trusted_entries
+        (trusted_entries, sync_worker_active.unwrap_or_default() == "1")
     };
 
     write_google_token_cache(
@@ -1531,17 +1548,23 @@ pub async fn connect_google_account(state: State<'_, AppState>, app: AppHandle) 
 
     let trusted_senders_path = write_trusted_senders_file(&app, &trusted_entries)?;
     let credentials_path = google_oauth_credentials_path_from_file(&app);
-    let worker_launch = launch_sync_worker(
-        &app,
-        &public_key_path,
-        &trusted_senders_path,
-        credentials_path.as_deref(),
-    );
+    let worker_running = worker_already_active && is_sync_worker_running_for_app(&app);
+    let worker_launch = if worker_running {
+        Ok(None)
+    } else {
+        launch_sync_worker(
+            &app,
+            &public_key_path,
+            &trusted_senders_path,
+            credentials_path.as_deref(),
+        )
+        .map(Some)
+    };
 
     {
         let mut lock = state.db.lock().unwrap();
         let conn = lock.as_mut().ok_or("Database not initialized")?;
-        let active_value = if worker_launch.is_ok() { "1" } else { "0" };
+        let active_value = if worker_running || worker_launch.is_ok() { "1" } else { "0" };
         conn.execute(
             "INSERT INTO settings (key, value, updated_at) VALUES ('sync_worker_active', ?1, datetime('now'))
              ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
@@ -1562,11 +1585,14 @@ pub async fn connect_google_account(state: State<'_, AppState>, app: AppHandle) 
                 err
             ));
         }
-        Ok(log_path) => {
+        Ok(Some(log_path)) => {
             message.push_str(&format!(
                 " Background worker started (30s test interval). Logs: {}",
                 log_path.to_string_lossy()
             ));
+        }
+        Ok(None) => {
+            message.push_str(" Background worker already active; reused existing watcher.");
         }
     }
 
@@ -1751,26 +1777,61 @@ pub fn set_transaction_flagged(state: State<AppState>, id: Value, flagged: Value
 
 #[command]
 pub fn create_transaction(state: State<AppState>, amount: Value, category_id: Value, account_id: Value, date: Value, note: Value, merchant: Value) -> Result<Value, String> {
-    let date_for_cache = date.as_str().map(|s| s.to_string());
+    let amount_value = amount.as_f64().ok_or("Invalid amount")?;
+    let category_id_value = category_id.as_i64().ok_or("Invalid category id")?;
+    let account_id_value = account_id.as_i64().ok_or("Invalid account id")?;
+    let date_value: String = date.as_str().ok_or("Invalid date")?.to_string();
+    let date_for_cache = Some(date_value.clone());
 
-    let merchant_value = match merchant {
+    let note_value: Option<String> = match note {
+        Value::String(ref s) => Some(s.clone()),
+        Value::Null => None,
+        _ => return Err("Invalid note".into()),
+    };
+
+    let merchant_value: Option<String> = match merchant {
         Value::String(ref s) => {
             let trimmed = s.trim();
             if trimmed.is_empty() {
-                Value::Null
+                None
             } else {
-                Value::String(trimmed.to_string())
+                Some(trimmed.to_string())
             }
         }
-        Value::Null => Value::Null,
+        Value::Null => None,
         _ => return Err("Invalid merchant".into()),
     };
 
-    let result = execute_query(
-        &state,
-        "INSERT INTO transactions (amount, category_id, account_id, date, note, merchant) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        vec![amount, category_id, account_id, date, note, merchant_value],
-    )?;
+    let result = {
+        let mut lock = state.db.lock().unwrap();
+        let conn = lock.as_mut().ok_or("Database not initialized")?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+        tx.execute(
+            "INSERT INTO transactions (amount, category_id, account_id, date, note, merchant) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![amount_value, category_id_value, account_id_value, date_value, note_value, merchant_value],
+        )
+        .map_err(|e| e.to_string())?;
+
+        let rows_affected = tx
+            .execute(
+                "UPDATE accounts SET balance = balance + ?1, updated_at = datetime('now') WHERE id = ?2",
+                params![amount_value, account_id_value],
+            )
+            .map_err(|e| e.to_string())?;
+        if rows_affected == 0 {
+            return Err("Account not found for transaction".to_string());
+        }
+
+        let last_insert_id = tx.last_insert_rowid();
+        tx.commit().map_err(|e| e.to_string())?;
+        upsert_today_balance_snapshot_on_conn(conn)?;
+
+        let mut map = Map::new();
+        map.insert("lastInsertId".to_string(), Value::Number(last_insert_id.into()));
+        map.insert("rowsAffected".to_string(), Value::Number(1.into()));
+        Value::Object(map)
+    };
 
     if let Some(tx_date) = date_for_cache {
         invalidate_month_story_cache_from_date(&state, &tx_date)?;
@@ -1821,11 +1882,11 @@ pub fn update_transaction(
 
         let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-        let prev_date: String = tx
+        let (prev_date, prev_amount, prev_account_id): (String, f64, i64) = tx
             .query_row(
-                "SELECT date FROM transactions WHERE id = ?1",
+                "SELECT date, amount, account_id FROM transactions WHERE id = ?1",
                 [txn_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .map_err(|e| e.to_string())?;
 
@@ -1835,6 +1896,41 @@ pub fn update_transaction(
                 params![next_amount, next_category_id, next_account_id, next_date, next_note, next_merchant, txn_id],
             )
             .map_err(|e| e.to_string())?;
+
+        if prev_account_id == next_account_id {
+            let delta = next_amount - prev_amount;
+            if delta.abs() > 0.000001 {
+                let account_rows = tx
+                    .execute(
+                        "UPDATE accounts SET balance = balance + ?1, updated_at = datetime('now') WHERE id = ?2",
+                        params![delta, next_account_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                if account_rows == 0 {
+                    return Err("Account not found for transaction update".to_string());
+                }
+            }
+        } else {
+            let prev_rows = tx
+                .execute(
+                    "UPDATE accounts SET balance = balance - ?1, updated_at = datetime('now') WHERE id = ?2",
+                    params![prev_amount, prev_account_id],
+                )
+                .map_err(|e| e.to_string())?;
+            if prev_rows == 0 {
+                return Err("Original account not found for transaction update".to_string());
+            }
+
+            let next_rows = tx
+                .execute(
+                    "UPDATE accounts SET balance = balance + ?1, updated_at = datetime('now') WHERE id = ?2",
+                    params![next_amount, next_account_id],
+                )
+                .map_err(|e| e.to_string())?;
+            if next_rows == 0 {
+                return Err("Target account not found for transaction update".to_string());
+            }
+        }
 
         tx.commit().map_err(|e| e.to_string())?;
         upsert_today_balance_snapshot_on_conn(conn)?;
@@ -1857,26 +1953,61 @@ pub fn update_transaction(
 pub fn delete_transaction(state: State<AppState>, id: Value) -> Result<Value, String> {
     let txn_id = id.as_i64().ok_or("Invalid transaction id")?;
 
-    let date_for_cache: Option<String> = {
+    let (rows_affected, date_for_cache): (usize, Option<String>) = {
         let mut lock = state.db.lock().unwrap();
         let conn = lock.as_mut().ok_or("Database not initialized")?;
 
-        conn.query_row(
-            "SELECT date FROM transactions WHERE id = ?1",
-            [txn_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|e| e.to_string())?
-    };
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let result = execute_query(&state, "DELETE FROM transactions WHERE id = ?1", vec![id])?;
+        let txn_meta: Option<(String, Option<String>, f64, i64)> = tx
+            .query_row(
+                "SELECT date, external_id, amount, account_id FROM transactions WHERE id = ?1",
+                [txn_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        let rows_affected = tx
+            .execute("DELETE FROM transactions WHERE id = ?1", [txn_id])
+            .map_err(|e| e.to_string())?;
+
+        if rows_affected > 0 {
+            if let Some((_, _, amount, account_id)) = txn_meta.as_ref() {
+                let account_rows = tx
+                    .execute(
+                        "UPDATE accounts SET balance = balance - ?1, updated_at = datetime('now') WHERE id = ?2",
+                        params![amount, account_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                if account_rows == 0 {
+                    return Err("Account not found for transaction delete".to_string());
+                }
+            }
+        }
+
+        if let Some((_, Some(external_id), _, _)) = &txn_meta {
+            tx.execute(
+                "DELETE FROM sync_imports WHERE external_id = ?1",
+                [external_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        tx.commit().map_err(|e| e.to_string())?;
+        upsert_today_balance_snapshot_on_conn(conn)?;
+
+        (rows_affected, txn_meta.map(|(date, _, _, _)| date))
+    };
 
     if let Some(tx_date) = date_for_cache {
         invalidate_month_story_cache_from_date(&state, &tx_date)?;
     }
 
-    Ok(result)
+    let mut map = Map::new();
+    map.insert("lastInsertId".to_string(), Value::Number(txn_id.into()));
+    map.insert("rowsAffected".to_string(), Value::Number((rows_affected as i64).into()));
+    Ok(Value::Object(map))
 }
 
 #[command]

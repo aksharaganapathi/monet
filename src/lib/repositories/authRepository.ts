@@ -11,11 +11,15 @@ export const authRepository = {
     password: string;
     biometricEnabled: boolean;
   }): Promise<SetupStatus> {
-    return invoke<SetupStatus>('complete_onboarding', payload);
+    return invoke<SetupStatus>('complete_setup', {
+      name: payload.name,
+      secret: payload.password,
+      biometricEnabled: payload.biometricEnabled,
+    });
   },
 
   async unlockWithPassword(password: string): Promise<SetupStatus> {
-    return invoke<SetupStatus>('unlock_with_password', { password });
+    return invoke<SetupStatus>('unlock_vault', { secret: password });
   },
 
   async updateUserName(name: string): Promise<SetupStatus> {
@@ -23,21 +27,21 @@ export const authRepository = {
   },
 
   async changePassword(currentPassword: string, newPassword: string): Promise<SetupStatus> {
-    return invoke<SetupStatus>('change_password', {
-      currentPassword,
-      newPassword,
+    return invoke<SetupStatus>('change_vault_secret', {
+      currentSecret: currentPassword,
+      newSecret: newPassword,
     });
   },
 
   async setBiometricEnabled(password: string, enabled: boolean): Promise<SetupStatus> {
     return invoke<SetupStatus>('set_biometric_enabled', {
-      password,
+      secret: password,
       enabled,
     });
   },
 
   async verifyPassword(password: string): Promise<void> {
-    return invoke('verify_password', { password });
+    return invoke('verify_unlock_secret', { secret: password });
   },
 
   async resetBiometricRegistration(): Promise<void> {

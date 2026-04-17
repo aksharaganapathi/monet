@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { invoke } from '@tauri-apps/api/core';
-import { accountRepository } from './accountRepository';
 import { TransactionSchema, TransactionWithDetailsSchema, MonthlySpendingSchema } from '../types';
 import type { Transaction, TransactionWithDetails, CreateTransactionDTO, UpdateTransactionDTO } from '../types';
 
@@ -47,9 +46,7 @@ export const transactionRepository = {
     if (result.lastInsertId == null) {
       throw new Error('Failed to create transaction: missing inserted id');
     }
-    // Update account balance
-    await accountRepository.updateBalance(dto.account_id, dto.amount);
-    
+
     const rows = await invoke<unknown[]>('get_transaction_by_id', { id: result.lastInsertId });
     if (!rows || rows.length === 0) {
       throw new Error('Failed to create transaction: row not found after insert');
@@ -58,11 +55,6 @@ export const transactionRepository = {
   },
 
   async delete(id: number): Promise<void> {
-    const rows = await invoke<unknown[]>('get_transaction_by_id', { id });
-    if (rows && rows.length > 0) {
-      const txn = TransactionSchema.parse(rows[0]);
-      await accountRepository.updateBalance(txn.account_id, -txn.amount);
-    }
     await invoke('delete_transaction', { id });
   },
 

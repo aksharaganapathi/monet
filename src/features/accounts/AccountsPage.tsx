@@ -12,7 +12,7 @@ import { Input } from '../../components/ui/Input';
 import { AccountForm } from './AccountForm';
 import { useAccountStore } from '../../store/accountStore';
 import { useTransactionStore } from '../../store/transactionStore';
-import { formatCurrency } from '../../lib/utils';
+import { Amount } from '../../components/ui/Amount';
 import type { Account } from '../../lib/types';
 
 const container = {
@@ -104,7 +104,9 @@ export function AccountsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">Total Balance</p>
-                <p className="mt-2 text-3xl font-semibold numeric-display text-text-primary">{formatCurrency(totalBalance)}</p>
+                <div className="mt-2 text-3xl font-semibold numeric-display text-text-primary">
+                  <Amount value={totalBalance} />
+                </div>
                 <p className="mt-2 text-xs text-text-secondary">{accounts.length} account{accounts.length !== 1 ? 's' : ''} connected</p>
               </div>
               <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-accent-subtle text-accent">
@@ -122,7 +124,9 @@ export function AccountsPage() {
               </span>
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">Checking</p>
-                <p className="mt-1 text-xl font-semibold numeric-display text-text-primary">{formatCurrency(checkingTotal)}</p>
+                <div className="mt-1 text-xl font-semibold numeric-display text-text-primary">
+                  <Amount value={checkingTotal} />
+                </div>
               </div>
             </div>
           </Card>
@@ -136,7 +140,9 @@ export function AccountsPage() {
               </span>
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">Savings</p>
-                <p className="mt-1 text-xl font-semibold numeric-display text-text-primary">{formatCurrency(savingsTotal)}</p>
+                <div className="mt-1 text-xl font-semibold numeric-display text-text-primary">
+                  <Amount value={savingsTotal} />
+                </div>
               </div>
             </div>
           </Card>
@@ -195,9 +201,9 @@ export function AccountsPage() {
 
                 <div className="mt-5 rounded-2xl border border-white/55 bg-white/55 p-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Current balance</p>
-                  <p className={`mt-1 text-2xl font-semibold numeric-display ${account.balance >= 0 ? 'text-text-primary' : 'text-expense'}`}>
-                    {formatCurrency(account.balance)}
-                  </p>
+                  <div className={`mt-1 text-2xl font-semibold numeric-display ${account.balance >= 0 ? 'text-text-primary' : 'text-expense'}`}>
+                    <Amount value={account.balance} />
+                  </div>
                 </div>
 
                 <div className="mt-4 flex items-center justify-between">

@@ -25,6 +25,7 @@ import { useAccountStore } from '../../store/accountStore';
 import { useCategoryStore } from '../../store/categoryStore';
 import { useTransactionStore } from '../../store/transactionStore';
 import { useUIStore } from '../../store/uiStore';
+import { Amount } from '../../components/ui/Amount';
 
 function toMonthKey(year: number, month: number) {
   return `${year}-${String(month).padStart(2, '0')}`;
@@ -50,9 +51,10 @@ function monthlyEquivalent(amount: number, frequency: 'daily' | 'weekly' | 'mont
 }
 
 function TrendPill({ value, inverse = false }: { value: number; inverse?: boolean }) {
+  const isPrivateMode = useUIStore((state) => state.isPrivateMode);
   const positive = inverse ? value <= 0 : value >= 0;
   const tone = positive ? 'bg-income-subtle text-income' : 'bg-expense-subtle text-expense';
-  const display = `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
+  const display = isPrivateMode ? '•••' : `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
 
   return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>{display}</span>;
 }
@@ -60,13 +62,13 @@ function TrendPill({ value, inverse = false }: { value: number; inverse?: boolea
 function MetricCard({
   icon,
   label,
-  value,
+  amount,
   delta,
   inverse = false,
 }: {
   icon: React.ReactNode;
   label: string;
-  value: string;
+  amount: number;
   delta: number;
   inverse?: boolean;
 }) {
@@ -82,22 +84,23 @@ function MetricCard({
       <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">
         {label}
       </p>
-      <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-text-primary numeric-display">
-        {value}
-      </p>
+      <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-text-primary numeric-display">
+        <Amount value={amount} />
+      </div>
     </Card>
   );
 }
 
 function BalanceTooltip({ active, payload, label }: any) {
+  const isPrivateMode = useUIStore((state) => state.isPrivateMode);
   if (!active || !payload?.length) return null;
 
   return (
     <div className="chart-tooltip rounded-2xl px-3 py-2 text-sm">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-secondary">{label}</p>
-      <p className="mt-1 font-semibold text-text-primary numeric-display">
-        {formatCurrency(Number(payload[0]?.value ?? 0))}
-      </p>
+      <div className="mt-1 font-semibold text-text-primary numeric-display">
+        {isPrivateMode ? '••••' : formatCurrency(Number(payload[0]?.value ?? 0))}
+      </div>
     </div>
   );
 }
@@ -116,7 +119,7 @@ export function DashboardPage({
   } = useAccountStore();
   const { transactions, hasLoaded: transactionsLoaded, fetchTransactions } = useTransactionStore();
   const { categories, fetchCategories } = useCategoryStore();
-  const { selectedMonth, setActivePage } = useUIStore();
+  const { selectedMonth, setActivePage, isPrivateMode } = useUIStore();
   const currentMonthKey = toMonthKey(selectedMonth.year, selectedMonth.month);
   const [aiSummary, setAiSummary] = useState('');
   const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -261,11 +264,12 @@ export function DashboardPage({
     const lead = topCategory?.categoryName
       ? `${topCategory.categoryName} is driving the largest share of spending.`
       : 'No dominant expense category yet.';
-    return `${formatCurrency(dashboardData.thisMonthSummary.income)} in, ${formatCurrency(dashboardData.thisMonthSummary.expenses)} out, leaving ${formatCurrency(dashboardData.thisMonthSummary.netFlow)} net flow. ${lead}`;
+    return `${isPrivateMode ? '••••' : formatCurrency(dashboardData.thisMonthSummary.income)} in, ${isPrivateMode ? '••••' : formatCurrency(dashboardData.thisMonthSummary.expenses)} out, leaving ${isPrivateMode ? '••••' : formatCurrency(dashboardData.thisMonthSummary.netFlow)} net flow. ${lead}`;
   }, [
     dashboardData.thisMonthSummary.expenses,
     dashboardData.thisMonthSummary.income,
     dashboardData.thisMonthSummary.netFlow,
+    isPrivateMode,
     topCategory?.categoryName,
   ]);
 
@@ -296,9 +300,9 @@ export function DashboardPage({
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">
                 Total balance
               </p>
-              <p className="mt-2 text-5xl font-semibold tracking-[-0.06em] text-text-primary numeric-display">
-                {formatCurrency(netWorth)}
-              </p>
+              <div className="mt-2 text-5xl font-semibold tracking-[-0.06em] text-text-primary numeric-display">
+                <Amount value={netWorth} />
+              </div>
             </div>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -321,9 +325,9 @@ export function DashboardPage({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
                   Net flow
                 </p>
-                <p className="mt-2 truncate text-xl font-semibold text-text-primary numeric-display">
-                  {formatCurrency(dashboardData.thisMonthSummary.netFlow)}
-                </p>
+                <div className="mt-2 truncate text-xl font-semibold text-text-primary numeric-display">
+                  <Amount value={dashboardData.thisMonthSummary.netFlow} />
+                </div>
               </div>
               <div className="min-w-0 rounded-2xl border border-border bg-white px-4 py-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
@@ -337,9 +341,9 @@ export function DashboardPage({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
                   Recurring
                 </p>
-                <p className="mt-2 truncate text-xl font-semibold text-text-primary numeric-display">
-                  {formatCurrency(dashboardData.recurringExpenseTotal)}
-                </p>
+                <div className="mt-2 truncate text-xl font-semibold text-text-primary numeric-display">
+                  <Amount value={dashboardData.recurringExpenseTotal} />
+                </div>
               </div>
             </div>
           </div>
@@ -349,13 +353,13 @@ export function DashboardPage({
           <MetricCard
             icon={<TrendingUp size={20} />}
             label="Income"
-            value={formatCurrency(dashboardData.thisMonthSummary.income)}
+            amount={dashboardData.thisMonthSummary.income}
             delta={incomeDelta}
           />
           <MetricCard
             icon={<TrendingDown size={20} />}
             label="Expenses"
-            value={formatCurrency(dashboardData.thisMonthSummary.expenses)}
+            amount={dashboardData.thisMonthSummary.expenses}
             delta={expenseDelta}
             inverse
           />
@@ -399,11 +403,24 @@ export function DashboardPage({
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={dashboardData.balanceTrend} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
                 <CartesianGrid vertical={false} stroke="rgba(15,23,42,0.08)" />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} />
+                <XAxis 
+                  dataKey="label" 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={{ 
+                    fill: 'var(--color-text-tertiary)', 
+                    fontSize: 11,
+                    filter: isPrivateMode ? 'blur(4px)' : 'none'
+                  }} 
+                />
                 <YAxis
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }}
+                  tick={{ 
+                    fill: 'var(--color-text-tertiary)', 
+                    fontSize: 11,
+                    filter: isPrivateMode ? 'blur(4px)' : 'none'
+                  }}
                   tickFormatter={(value) => `$${Math.round(Number(value) / 1000)}k`}
                 />
                 <Tooltip content={<BalanceTooltip />} />
@@ -413,6 +430,7 @@ export function DashboardPage({
                   stroke="var(--color-accent)"
                   strokeWidth={3}
                   dot={false}
+                  strokeDasharray={isPrivateMode ? "4 4" : undefined}
                   activeDot={{ r: 5, fill: 'var(--color-accent)', stroke: '#fff', strokeWidth: 2 }}
                 />
               </LineChart>
@@ -470,7 +488,7 @@ export function DashboardPage({
                     <p className="truncate text-sm font-semibold text-text-primary">{category.categoryName}</p>
                   </div>
                   <p className="text-sm font-semibold text-text-primary numeric-display">
-                    {category.share.toFixed(1)}%
+                    {isPrivateMode ? '••%' : `${category.share.toFixed(1)}%`}
                   </p>
                 </div>
               ))
@@ -525,10 +543,9 @@ export function DashboardPage({
                       <span className="truncate text-text-secondary">{transaction.category_name}</span>
                       <span className="truncate text-text-secondary">{transaction.account_name}</span>
                       <span className="text-text-secondary">{formatDateShort(transaction.date)}</span>
-                      <span className={`text-right font-semibold numeric-display ${positive ? 'text-income' : 'text-expense'}`}>
-                        {positive ? '+' : '-'}
-                        {formatCurrency(Math.abs(transaction.amount))}
-                      </span>
+                      <div className={`text-right font-semibold numeric-display ${positive ? 'text-income' : 'text-expense'}`}>
+                        <Amount value={transaction.amount} showSign />
+                      </div>
                     </div>
                   );
                 })}

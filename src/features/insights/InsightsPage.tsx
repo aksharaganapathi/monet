@@ -23,6 +23,7 @@ import { formatCurrency, formatDate, getMonthName } from '../../lib/utils';
 import { useAccountStore } from '../../store/accountStore';
 import { useTransactionStore } from '../../store/transactionStore';
 import { useUIStore } from '../../store/uiStore';
+import { Amount } from '../../components/ui/Amount';
 
 const container = {
   hidden: { opacity: 0 },
@@ -59,18 +60,28 @@ function getCadenceTone(spend: number, dailyAverage: number): string {
 function MetricCard({
   label,
   value,
+  amount,
+  mode = 'currency',
   description,
   tone = 'text-text-primary',
 }: {
   label: string;
-  value: string;
+  value?: string;
+  amount?: number;
+  mode?: 'currency' | 'percentage';
   description: string;
   tone?: string;
 }) {
   return (
     <Card className="p-5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">{label}</p>
-      <p className={`mt-3 text-3xl font-semibold numeric-display ${tone}`}>{value}</p>
+      <div className={`mt-3 text-3xl font-semibold numeric-display ${tone}`}>
+        {amount !== undefined ? (
+          <Amount value={amount} mode={mode} />
+        ) : (
+          value
+        )}
+      </div>
       <p className="mt-2 text-sm text-text-secondary">{description}</p>
     </Card>
   );
@@ -84,7 +95,7 @@ export function InsightsPage() {
     fetchTransactions,
     setTransactionFlagged,
   } = useTransactionStore();
-  const { selectedMonth } = useUIStore();
+  const { selectedMonth, isPrivateMode } = useUIStore();
 
   useEffect(() => {
     if (!accountsLoaded) void fetchAccounts();
@@ -255,15 +266,29 @@ export function InsightsPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={monthlyTrend} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
                   <CartesianGrid vertical={false} stroke="rgba(15,23,42,0.08)" />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <XAxis 
+                    dataKey="label" 
+                    tickLine={false} 
+                    axisLine={false} 
+                    tick={{ 
+                      fill: 'var(--color-text-tertiary)', 
+                      fontSize: 11,
+                      filter: isPrivateMode ? 'blur(4px)' : 'none'
+                    }} 
+                  />
                   <YAxis
                     tickLine={false}
                     axisLine={false}
+                    tick={{ 
+                      fill: 'var(--color-text-tertiary)', 
+                      fontSize: 11,
+                      filter: isPrivateMode ? 'blur(4px)' : 'none'
+                    }}
                     tickFormatter={(value) => `$${Math.round(Number(value) / 1000)}k`}
                   />
                   <Tooltip
                     formatter={(value, name) => [
-                      formatCurrency(Number(value ?? 0)),
+                      isPrivateMode ? '••••' : formatCurrency(Number(value ?? 0)),
                       name === 'income' ? 'Income' : 'Spending',
                     ]}
                     contentStyle={{
@@ -297,13 +322,14 @@ export function InsightsPage() {
         <motion.div variants={item} className="col-span-12 grid gap-4 md:grid-cols-2 xl:col-span-4 xl:grid-cols-1">
           <MetricCard
             label="Net flow"
-            value={formatCurrency(currentMonthSummary.netFlow)}
+            amount={currentMonthSummary.netFlow}
             description="Income minus spending for the selected month."
             tone={currentMonthSummary.netFlow >= 0 ? 'text-income' : 'text-expense'}
           />
           <MetricCard
             label="Savings rate"
-            value={`${savingsRate.toFixed(1)}%`}
+            amount={savingsRate}
+            mode="percentage"
             description="Share of income left after expenses."
             tone={savingsRate >= 0 ? 'text-text-primary' : 'text-expense'}
           />
@@ -312,7 +338,7 @@ export function InsightsPage() {
         <motion.div variants={item} className="col-span-12 md:col-span-4">
           <MetricCard
             label="Income"
-            value={formatCurrency(currentMonthSummary.income)}
+            amount={currentMonthSummary.income}
             description="Recorded income this month."
             tone="text-income"
           />
@@ -321,7 +347,7 @@ export function InsightsPage() {
         <motion.div variants={item} className="col-span-12 md:col-span-4">
           <MetricCard
             label="Spending"
-            value={formatCurrency(currentMonthSummary.expenses)}
+            amount={currentMonthSummary.expenses}
             description="Recorded outflow this month."
             tone="text-expense"
           />
@@ -330,7 +356,7 @@ export function InsightsPage() {
         <motion.div variants={item} className="col-span-12 md:col-span-4">
           <MetricCard
             label="Recurring spend"
-            value={formatCurrency(recurringExpenseTotal)}
+            amount={recurringExpenseTotal}
             description="Estimated monthly recurring obligations."
           />
         </motion.div>
@@ -351,25 +377,25 @@ export function InsightsPage() {
 
             {forecast.active ? (
               <div className="mt-6 space-y-4">
-                <p className={`text-4xl font-semibold numeric-display ${forecast.projectedNetFlow >= 0 ? 'text-income' : 'text-expense'}`}>
-                  {formatCurrency(forecast.projectedNetFlow)}
-                </p>
+                <div className={`text-4xl font-semibold numeric-display ${forecast.projectedNetFlow >= 0 ? 'text-income' : 'text-expense'}`}>
+                  <Amount value={forecast.projectedNetFlow} />
+                </div>
                 <div className="space-y-3">
                   <div className="rounded-2xl border border-border bg-surface-muted px-4 py-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary">
                       Confirmed recurring
                     </p>
-                    <p className="mt-2 text-lg font-semibold text-text-primary numeric-display">
-                      {formatCurrency(forecast.confirmedRecurring)}
-                    </p>
+                    <div className="mt-2 text-lg font-semibold text-text-primary numeric-display">
+                      <Amount value={forecast.confirmedRecurring} />
+                    </div>
                   </div>
                   <div className="rounded-2xl border border-border bg-surface-muted px-4 py-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary">
                       Variable pace
                     </p>
-                    <p className="mt-2 text-lg font-semibold text-text-primary numeric-display">
-                      {formatCurrency(forecast.projectedVariable)}
-                    </p>
+                    <div className="mt-2 text-lg font-semibold text-text-primary numeric-display">
+                      <Amount value={forecast.projectedVariable} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -405,9 +431,9 @@ export function InsightsPage() {
                   <div key={`${pattern.note}-${pattern.last_date}`} className="rounded-2xl border border-border bg-surface-muted px-4 py-4">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-semibold text-text-primary">{pattern.note}</p>
-                      <p className="text-sm font-semibold text-expense numeric-display">
-                        {formatCurrency(Math.abs(pattern.amount))}
-                      </p>
+                      <div className="text-sm font-semibold text-expense numeric-display">
+                        <Amount value={Math.abs(pattern.amount)} />
+                      </div>
                     </div>
                     <p className="mt-1 text-xs text-text-secondary">
                       {pattern.frequency} / next expected {formatDate(pattern.next_expected_date)}
@@ -450,7 +476,7 @@ export function InsightsPage() {
                 return (
                   <div
                     key={day}
-                    title={`${formatDate(`${currentKey}-${String(day).padStart(2, '0')}`)} | ${formatCurrency(entry.spend)} | ${entry.count} transaction${entry.count === 1 ? '' : 's'}`}
+                    title={`${formatDate(`${currentKey}-${String(day).padStart(2, '0')}`)} | ${isPrivateMode ? '••••' : formatCurrency(entry.spend)} | ${entry.count} transaction${entry.count === 1 ? '' : 's'}`}
                     className="flex aspect-square flex-col justify-between rounded-2xl border border-border px-2 py-2 text-xs text-text-primary"
                     style={{ backgroundColor: getCadenceTone(entry.spend, dailyAverage) }}
                   >
@@ -496,9 +522,9 @@ export function InsightsPage() {
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-expense numeric-display">
-                          {formatCurrency(Math.abs(transaction.amount))}
-                        </p>
+                        <div className="text-sm font-semibold text-expense numeric-display">
+                          <Amount value={Math.abs(transaction.amount)} />
+                        </div>
                         <button
                           type="button"
                           onClick={() => void setTransactionFlagged(transaction.id, !transaction.flagged)}
@@ -548,9 +574,9 @@ export function InsightsPage() {
                 <p className="mt-2 text-lg font-semibold text-text-primary">
                   {checkpointMetrics.highestIncomeMonth?.label || 'N/A'}
                 </p>
-                <p className="mt-1 text-sm text-income numeric-display">
-                  {formatCurrency(checkpointMetrics.highestIncomeMonth?.income ?? 0)}
-                </p>
+                <div className="mt-1 text-sm text-income numeric-display">
+                  <Amount value={checkpointMetrics.highestIncomeMonth?.income ?? 0} />
+                </div>
               </div>
 
               <div className="rounded-2xl border border-border bg-surface-muted px-4 py-4">
@@ -560,9 +586,9 @@ export function InsightsPage() {
                 <p className="mt-2 text-lg font-semibold text-text-primary">
                   {checkpointMetrics.highestExpenseMonth?.label || 'N/A'}
                 </p>
-                <p className="mt-1 text-sm text-expense numeric-display">
-                  {formatCurrency(checkpointMetrics.highestExpenseMonth?.expense ?? 0)}
-                </p>
+                <div className="mt-1 text-sm text-expense numeric-display">
+                  <Amount value={checkpointMetrics.highestExpenseMonth?.expense ?? 0} />
+                </div>
               </div>
 
               <div className="rounded-2xl border border-border bg-surface-muted px-4 py-4">
@@ -572,18 +598,18 @@ export function InsightsPage() {
                 <p className="mt-2 text-lg font-semibold text-text-primary">
                   {checkpointMetrics.strongestNetMonth?.label || 'N/A'}
                 </p>
-                <p className={`mt-1 text-sm numeric-display ${(checkpointMetrics.strongestNetMonth?.net ?? 0) >= 0 ? 'text-income' : 'text-expense'}`}>
-                  {formatCurrency(checkpointMetrics.strongestNetMonth?.net ?? 0)}
-                </p>
+                <div className={`mt-1 text-sm numeric-display ${(checkpointMetrics.strongestNetMonth?.net ?? 0) >= 0 ? 'text-income' : 'text-expense'}`}>
+                  <Amount value={checkpointMetrics.strongestNetMonth?.net ?? 0} />
+                </div>
               </div>
 
               <div className="rounded-2xl border border-border bg-surface-muted px-4 py-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary">
                   Average monthly net
                 </p>
-                <p className={`mt-2 text-lg font-semibold numeric-display ${checkpointMetrics.averageMonthlyNet >= 0 ? 'text-income' : 'text-expense'}`}>
-                  {formatCurrency(checkpointMetrics.averageMonthlyNet)}
-                </p>
+                <div className={`mt-2 text-lg font-semibold numeric-display ${checkpointMetrics.averageMonthlyNet >= 0 ? 'text-income' : 'text-expense'}`}>
+                  <Amount value={checkpointMetrics.averageMonthlyNet} />
+                </div>
               </div>
             </div>
           </Card>

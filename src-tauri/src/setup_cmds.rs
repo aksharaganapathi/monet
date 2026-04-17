@@ -8,23 +8,23 @@ pub fn get_setup_status(app: AppHandle) -> Result<SetupStatus, String> {
 }
 
 #[tauri::command]
-pub fn complete_onboarding(
+pub fn complete_setup(
     state: State<AppState>,
     app: AppHandle,
     name: String,
-    password: String,
+    secret: String,
     biometric_enabled: bool,
 ) -> Result<SetupStatus, String> {
-    crate::complete_onboarding_internal(&state, &app, name, password, biometric_enabled)
+    crate::complete_onboarding_internal(&state, &app, name, secret, biometric_enabled)
 }
 
 #[tauri::command]
-pub fn unlock_with_password(
+pub fn unlock_vault(
     state: State<AppState>,
     app: AppHandle,
-    password: String,
+    secret: String,
 ) -> Result<SetupStatus, String> {
-    crate::unlock_with_password_command(&state, &app, password)
+    crate::unlock_with_password_command(&state, &app, secret)
 }
 
 #[tauri::command]
@@ -33,28 +33,28 @@ pub fn update_user_name(app: AppHandle, name: String) -> Result<SetupStatus, Str
 }
 
 #[tauri::command]
-pub fn change_password(
+pub fn change_vault_secret(
     state: State<AppState>,
     app: AppHandle,
-    current_password: String,
-    new_password: String,
+    current_secret: String,
+    new_secret: String,
 ) -> Result<SetupStatus, String> {
-    crate::change_password_internal(&state, &app, current_password, new_password)
+    crate::change_password_internal(&state, &app, current_secret, new_secret)
 }
 
 #[tauri::command]
 pub fn set_biometric_enabled(
     state: State<AppState>,
     app: AppHandle,
-    password: String,
+    secret: String,
     enabled: bool,
 ) -> Result<SetupStatus, String> {
-    crate::set_biometric_enabled_internal(&state, &app, password, enabled)
+    crate::set_biometric_enabled_internal(&state, &app, secret, enabled)
 }
 
 #[tauri::command]
-pub fn verify_password(state: State<AppState>, app: AppHandle, password: String) -> Result<(), String> {
-    crate::verify_password_command(&state, &app, password)
+pub fn verify_unlock_secret(state: State<AppState>, app: AppHandle, secret: String) -> Result<(), String> {
+    crate::verify_password_command(&state, &app, secret)
 }
 
 #[tauri::command]

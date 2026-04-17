@@ -22,6 +22,7 @@ import { useAccountStore } from '../../store/accountStore';
 import { useCategoryStore } from '../../store/categoryStore';
 import { useTransactionStore } from '../../store/transactionStore';
 import { useUIStore } from '../../store/uiStore';
+import { Amount } from '../../components/ui/Amount';
 
 const container = {
   hidden: { opacity: 0 },
@@ -91,7 +92,9 @@ export function TransactionsPage() {
     setTransactionCategoryFilter,
     clearTransactionFilters,
   } = useUIStore();
-  const [deletingTransactionId, setDeletingTransactionId] = useState<number | null>(null);
+  const [selectedTransactionIds, setSelectedTransactionIds] = useState<number[]>([]);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<number[]>([]);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
   const [syncError, setSyncError] = useState('');
@@ -203,6 +206,33 @@ export function TransactionsPage() {
     transactionFilters.type,
     transactions,
   ]);
+
+  useEffect(() => {
+    const visibleIds = new Set(filtered.map((transaction) => transaction.id));
+    setSelectedTransactionIds((previous) =>
+      previous.filter((transactionId) => visibleIds.has(transactionId)),
+    );
+  }, [filtered]);
+
+  const selectedIdSet = useMemo(() => new Set(selectedTransactionIds), [selectedTransactionIds]);
+  const allShownSelected =
+    filtered.length > 0 && filtered.every((transaction) => selectedIdSet.has(transaction.id));
+
+  const toggleTransactionSelection = (transactionId: number) => {
+    setSelectedTransactionIds((previous) =>
+      previous.includes(transactionId)
+        ? previous.filter((id) => id !== transactionId)
+        : [...previous, transactionId],
+    );
+  };
+
+  const toggleSelectAllShown = () => {
+    if (allShownSelected) {
+      setSelectedTransactionIds([]);
+      return;
+    }
+    setSelectedTransactionIds(filtered.map((transaction) => transaction.id));
+  };
 
   const grouped = useMemo(
     () =>
@@ -396,9 +426,9 @@ export function TransactionsPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
               Income
             </p>
-            <p className="numeric-display mt-2 text-xl font-semibold text-income">
-              {formatCurrency(incomeTotal)}
-            </p>
+            <div className="numeric-display mt-2 text-xl font-semibold text-income">
+              <Amount value={incomeTotal} />
+            </div>
           </Card>
         </motion.div>
 
@@ -407,9 +437,9 @@ export function TransactionsPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
               Expense
             </p>
-            <p className="numeric-display mt-2 text-xl font-semibold text-expense">
-              {formatCurrency(expenseTotal)}
-            </p>
+            <div className="numeric-display mt-2 text-xl font-semibold text-expense">
+              <Amount value={expenseTotal} />
+            </div>
           </Card>
         </motion.div>
 
@@ -418,12 +448,55 @@ export function TransactionsPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
               Avg per day
             </p>
-            <p className="numeric-display mt-2 text-xl font-semibold text-text-primary">
-              {formatCurrency(avgPerDay)}
-            </p>
+            <div className="numeric-display mt-2 text-xl font-semibold text-text-primary">
+              <Amount value={avgPerDay} />
+            </div>
           </Card>
         </motion.div>
       </div>
+
+      {filtered.length > 0 && (
+        <motion.div variants={item}>
+          <Card className="rounded-xl p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={allShownSelected}
+                  onChange={toggleSelectAllShown}
+                  className="h-4 w-4 rounded border-border text-accent focus:ring-accent/40"
+                />
+                Select all shown
+              </label>
+
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs font-semibold text-text-secondary">
+                  {selectedTransactionIds.length} selected
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setSelectedTransactionIds([])}
+                  disabled={selectedTransactionIds.length === 0}
+                >
+                  Clear Selection
+                </Button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  icon={<Trash2 size={14} />}
+                  onClick={() => setPendingDeleteIds(selectedTransactionIds)}
+                  disabled={selectedTransactionIds.length === 0}
+                >
+                  Delete Selected
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </motion.div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-auto pr-1">
         {filtered.length === 0 ? (
@@ -458,13 +531,20 @@ export function TransactionsPage() {
                 </div>
 
                 <Card className="overflow-hidden rounded-xl !p-0">
-                  <div className="divide-y divide-border-subtle">
+                  <div className="[&>*+*]:border-t [&>*+*]:border-t-[rgba(15,23,42,0.06)]">
                     {txns.map((transaction) => (
                       <div
                         key={transaction.id}
                         className="group flex items-center justify-between gap-3 px-4 py-3.5 transition-colors hover:bg-surface-muted"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIdSet.has(transaction.id)}
+                            onChange={() => toggleTransactionSelection(transaction.id)}
+                            className="h-4 w-4 rounded border-border text-accent focus:ring-accent/40"
+                            aria-label={`Select transaction ${transaction.id}`}
+                          />
                           <div
                             className={`flex h-10 w-10 items-center justify-center rounded-xl ${
                               transaction.amount >= 0
@@ -520,14 +600,13 @@ export function TransactionsPage() {
                         </div>
 
                         <div className="flex items-center gap-1">
-                          <p
+                          <div
                             className={`numeric-display min-w-[110px] text-right text-sm font-semibold ${
                               transaction.amount >= 0 ? 'text-income' : 'text-expense'
                             }`}
                           >
-                            {transaction.amount >= 0 ? '+' : '−'}
-                            {formatCurrency(Math.abs(transaction.amount))}
-                          </p>
+                            <Amount value={transaction.amount} showSign />
+                          </div>
                           <button
                             type="button"
                             onClick={() =>
@@ -555,7 +634,7 @@ export function TransactionsPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setDeletingTransactionId(transaction.id)}
+                            onClick={() => setPendingDeleteIds([transaction.id])}
                             className="rounded-lg p-2 text-text-tertiary transition-colors hover:bg-expense-subtle hover:text-expense"
                             aria-label="Delete transaction"
                           >
@@ -573,16 +652,37 @@ export function TransactionsPage() {
       </div>
 
       <ConfirmDialog
-        isOpen={deletingTransactionId != null}
-        onClose={() => setDeletingTransactionId(null)}
-        onConfirm={async () => {
-          if (deletingTransactionId == null) return;
-          await deleteTransaction(deletingTransactionId);
-          setDeletingTransactionId(null);
+        isOpen={pendingDeleteIds.length > 0}
+        onClose={() => {
+          if (deleteBusy) return;
+          setPendingDeleteIds([]);
         }}
-        title="Delete Transaction"
-        description="Delete this transaction? Your account balance will be updated automatically."
-        confirmLabel="Delete Transaction"
+        onConfirm={async () => {
+          if (pendingDeleteIds.length === 0 || deleteBusy) return;
+          setDeleteBusy(true);
+          const idsToDelete = [...pendingDeleteIds];
+          for (const transactionId of idsToDelete) {
+            await deleteTransaction(transactionId);
+          }
+          setSelectedTransactionIds((previous) =>
+            previous.filter((transactionId) => !idsToDelete.includes(transactionId)),
+          );
+          setPendingDeleteIds([]);
+          setDeleteBusy(false);
+        }}
+        title={pendingDeleteIds.length > 1 ? 'Delete Selected Transactions' : 'Delete Transaction'}
+        description={
+          pendingDeleteIds.length > 1
+            ? `Delete ${pendingDeleteIds.length} selected transactions? Account balances will be updated automatically.`
+            : 'Delete this transaction? Your account balance will be updated automatically.'
+        }
+        confirmLabel={
+          deleteBusy
+            ? 'Deleting...'
+            : pendingDeleteIds.length > 1
+              ? 'Delete Selected'
+              : 'Delete Transaction'
+        }
       />
     </motion.div>
   );
